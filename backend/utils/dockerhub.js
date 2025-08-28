@@ -82,7 +82,22 @@ class DockerHubUtils {
       return enhancedResults;
     } catch (error) {
       console.error('Docker Hub search failed:', error);
-      throw new Error(`Search failed: ${error.message}`);
+      
+      // Preserve the original error information for better handling
+      if (error.response) {
+        // If it's an HTTP error response, include status code
+        const errorMessage = `Search failed: ${error.response.status} ${error.response.statusText || 'Error'}`;
+        const newError = new Error(errorMessage);
+        newError.response = error.response;
+        newError.originalError = error;
+        throw newError;
+      } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+        // Network errors
+        throw new Error(`Search failed: Network error - ${error.message}`);
+      } else {
+        // Other errors
+        throw new Error(`Search failed: ${error.message}`);
+      }
     }
   }
 
@@ -254,7 +269,22 @@ class DockerHubUtils {
       };
     } catch (error) {
       console.error('Repository search failed:', error);
-      throw new Error(`Repository search failed: ${error.message}`);
+      
+      // Preserve the original error information for better handling
+      if (error.response) {
+        // If it's an HTTP error response, include status code
+        const errorMessage = `Repository search failed: ${error.response.status} ${error.response.statusText || 'Error'}`;
+        const newError = new Error(errorMessage);
+        newError.response = error.response;
+        newError.originalError = error;
+        throw newError;
+      } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+        // Network errors
+        throw new Error(`Repository search failed: Network error - ${error.message}`);
+      } else {
+        // Other errors
+        throw new Error(`Repository search failed: ${error.message}`);
+      }
     }
   }
 

@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, query, validationResult } = require('express-validator');
 const dockerHubUtils = require('../utils/dockerhub');
+const catUtils = require('../utils/cat');
 
 const router = express.Router();
 
@@ -34,13 +35,34 @@ router.get('/',
       
       console.log(`Searching for images: "${query}"`);
       
-      const results = await dockerHubUtils.searchImages(query, parseInt(limit));
-      
-      res.json({
-        query,
-        count: results.length,
-        results
-      });
+      try {
+        const results = await dockerHubUtils.searchImages(query, parseInt(limit));
+        
+        res.json({
+          query,
+          count: results.length,
+          results
+        });
+      } catch (searchError) {
+        // Check if this is a 400-like error (search failure)
+        if (searchError.message && (
+          searchError.message.includes('400') || 
+          searchError.message.includes('Bad Request') ||
+          searchError.message.includes('Search failed') ||
+          searchError.response?.status === 400
+        )) {
+          console.log(`Search failed for "${query}", showing cats instead! 🐱`);
+          
+          // Generate cat results instead of showing error
+          const catResults = await catUtils.generateCatResults(query, parseInt(limit));
+          
+          // Return cats with a 200 status (not an error for the frontend)
+          return res.status(200).json(catResults);
+        }
+        
+        // For other types of errors, still throw them
+        throw searchError;
+      }
     } catch (error) {
       console.error('Search error:', error);
       res.status(500).json({
@@ -115,13 +137,38 @@ router.get('/repositories',
         ordering
       };
       
-      const results = await dockerHubUtils.searchRepositories(query, filters);
-      
-      res.json({
-        query,
-        filters,
-        ...results
-      });
+      try {
+        const results = await dockerHubUtils.searchRepositories(query, filters);
+        
+        res.json({
+          query,
+          filters,
+          ...results
+        });
+      } catch (searchError) {
+        // Check if this is a 400-like error (search failure)
+        if (searchError.message && (
+          searchError.message.includes('400') || 
+          searchError.message.includes('Bad Request') ||
+          searchError.message.includes('Search failed') ||
+          searchError.response?.status === 400
+        )) {
+          console.log(`Repository search failed for "${query}", showing cats instead! 🐱`);
+          
+          // Generate cat results instead of showing error
+          const catResults = await catUtils.generateCatResults(query, parseInt(filters.limit));
+          
+          // Return cats with a 200 status (not an error for the frontend)
+          return res.status(200).json({
+            ...catResults,
+            filters,
+            search_type: 'repositories'
+          });
+        }
+        
+        // For other types of errors, still throw them
+        throw searchError;
+      }
     } catch (error) {
       console.error('Repository search error:', error);
       res.status(500).json({
@@ -221,6 +268,65 @@ router.get('/rate-limit', async (req, res) => {
     console.error('Rate limit error:', error);
     res.status(500).json({
       error: 'Failed to get rate limit information',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/search/cats
+ * Special endpoint to show cats (for testing the cat fallback functionality)
+ */
+router.get('/cats', async (req, res) => {
+  try {
+    const { limit = 10, query = 'test-search' } = req.query;
+    
+    console.log('Generating cat results for testing! 🐱');
+    
+    const catResults = await catUtils.generateCatResults(query, parseInt(limit));
+    
+    res.json({
+      ...catResults,
+      endpoint_info: 'This is a special endpoint for testing the cat fallback functionality!'
+    });
+  } catch (error) {
+    console.error('Cat generation error:', error);
+    res.status(500).json({
+      error: 'Failed to generate cats (how sad!)',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/search/test-400
+ * Special endpoint to simulate a 400 error and trigger cat fallback
+ */
+router.get('/test-400', async (req, res) => {
+  try {
+    const { query = 'test-query-that-fails', limit = 5 } = req.query;
+    
+    console.log(`Simulating 400 error for query: "${query}"`);
+    
+    // Simulate a 400 error that would trigger cat fallback
+    const mockError = new Error('400 Bad Request - Simulated error for testing');
+    mockError.response = { status: 400 };
+    
+    // This simulates what happens in the real search when we get a 400
+    if (mockError.message.includes('400')) {
+      console.log(`Simulated search failed for "${query}", showing cats instead! 🐱`);
+      
+      const catResults = await catUtils.generateCatResults(query, parseInt(limit));
+      
+      return res.status(200).json({
+        ...catResults,
+        test_info: 'This was a simulated 400 error to demonstrate cat fallback!'
+      });
+    }
+  } catch (error) {
+    console.error('Test 400 error:', error);
+    res.status(500).json({
+      error: 'Failed to simulate 400 error',
       message: error.message
     });
   }

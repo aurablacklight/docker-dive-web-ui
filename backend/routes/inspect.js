@@ -2,6 +2,7 @@ const express = require('express');
 const { param, validationResult } = require('express-validator');
 const diveUtils = require('../utils/dive');
 const dockerUtils = require('../utils/docker');
+const catUtils = require('../utils/cat');
 
 const router = express.Router();
 
@@ -26,9 +27,49 @@ router.post('/:imageName',
       // Check for validation errors
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({
-          error: 'Invalid image name',
-          details: errors.array()
+        const { imageName } = req.params;
+        const decodedImageName = decodeURIComponent(imageName);
+        
+        console.log(`Invalid image name "${decodedImageName}", showing cats instead! 🐱`);
+        
+        // Generate cat results for invalid image names
+        const catResults = await catUtils.generateCatResults(decodedImageName, 5);
+        
+        // Return cat inspection results instead of validation error
+        return res.status(200).json({
+          imageName: decodedImageName,
+          analysis: {
+            is_cat_fallback: true,
+            message: 'Image name validation failed, but here are some cats to inspect! 🐱',
+            cat_message: 'Purr-fect! These cats are much easier to analyze than that confusing image name!',
+            results: catResults.results,
+            cat_stats: catResults.cat_stats,
+            layers: catResults.results.map((cat, index) => ({
+              id: `cat-layer-${index + 1}`,
+              command: `RUN curl -s "${cat.cat_image_url}" > /tmp/cat-${index + 1}.jpg`,
+              size: Math.floor(Math.random() * 1000000) + 100000, // Random size between 100KB-1MB
+              efficiency: Math.random() * 100,
+              cat_data: {
+                image_url: cat.cat_image_url,
+                says_url: cat.cat_says_url,
+                tag: cat.cat_tag,
+                description: cat.short_description
+              }
+            }))
+          },
+          efficiency: {
+            score: Math.floor(Math.random() * 100) + 1,
+            wastedBytes: Math.floor(Math.random() * 1000000),
+            wastedPercent: Math.floor(Math.random() * 50),
+            is_cat_analysis: true
+          },
+          summary: {
+            totalLayers: catResults.results.length,
+            totalSize: catResults.results.length * 500000, // Approximate total size
+            baseImage: 'scratch/cats:latest',
+            is_cat_summary: true,
+            original_image_name: decodedImageName
+          }
         });
       }
 
@@ -143,6 +184,93 @@ router.post('/:imageName',
       
       const decodedImageName = decodeURIComponent(req.params.imageName);
       
+      // Check if this is a 400-like error or inspection failure
+      if (error.message && (
+        error.message.includes('400') || 
+        error.message.includes('Bad Request') ||
+        error.message.includes('not found') ||
+        error.message.includes('invalid') ||
+        error.message.includes('Failed to') ||
+        error.response?.status === 400
+      )) {
+        console.log(`Inspection failed for "${decodedImageName}", showing cats instead! 🐱`);
+        
+        try {
+          // Generate cat inspection results instead of showing error
+          const catResults = await catUtils.generateCatResults(decodedImageName, 8);
+          
+          // Update progress with cat success
+          inspectionProgress.set(decodedImageName, {
+            status: 'completed',
+            progress: 100,
+            message: 'Cat inspection completed successfully! 🐱',
+            is_cat_result: true,
+            completedTime: new Date()
+          });
+
+          // Send cat success via WebSocket
+          const inspectionSockets = req.app.get('inspectionSockets');
+          const socket = inspectionSockets.get(decodedImageName);
+          if (socket) {
+            socket.emit('inspection-complete', {
+              imageName: decodedImageName,
+              is_cat_fallback: true,
+              message: 'Image inspection failed, but cat analysis succeeded! 🐱'
+            });
+          }
+
+          // Return cat inspection results with a 200 status (not an error for the frontend)
+          return res.status(200).json({
+            success: true,
+            imageName: decodedImageName,
+            analysis: {
+              is_cat_fallback: true,
+              message: 'Original image inspection failed, but here are some cats to analyze instead! 🐱',
+              cat_message: 'These cats are much more photogenic than that problematic Docker image!',
+              results: catResults.results,
+              cat_stats: catResults.cat_stats,
+              layers: catResults.results.map((cat, index) => ({
+                id: `cat-layer-${index + 1}`,
+                command: `RUN curl -s "${cat.cat_image_url}" > /tmp/cat-${index + 1}.jpg`,
+                size: Math.floor(Math.random() * 2000000) + 100000, // Random size between 100KB-2MB
+                efficiency: 85 + Math.random() * 15, // Cats are very efficient!
+                wastedBytes: Math.floor(Math.random() * 10000), // Cats don't waste much
+                cat_data: {
+                  image_url: cat.cat_image_url,
+                  says_url: cat.cat_says_url,
+                  json_url: cat.cat_json_url,
+                  tag: cat.cat_tag,
+                  description: cat.short_description,
+                  facts: cat.cat_facts
+                }
+              })),
+              original_error: error.message
+            },
+            efficiency: {
+              score: 90 + Math.floor(Math.random() * 10), // Cats are very efficient
+              wastedBytes: Math.floor(Math.random() * 50000), // Minimal waste
+              wastedPercent: Math.floor(Math.random() * 5), // Very low waste
+              is_cat_analysis: true,
+              message: 'Cats are naturally efficient creatures! 🐱'
+            },
+            summary: {
+              totalLayers: catResults.results.length,
+              totalSize: catResults.results.reduce((sum, cat, index) => 
+                sum + (100000 + Math.floor(Math.random() * 2000000)), 0),
+              baseImage: 'scratch/cats:latest',
+              is_cat_summary: true,
+              original_image_name: decodedImageName,
+              cat_count: catResults.results.length
+            },
+            completedAt: new Date().toISOString()
+          });
+        } catch (catError) {
+          console.error('Failed to generate cat fallback:', catError);
+          // Fall through to regular error handling
+        }
+      }
+      
+      // For other types of errors, use regular error handling
       // Update progress with error
       inspectionProgress.set(decodedImageName, {
         status: 'error',
@@ -267,10 +395,13 @@ router.delete('/:imageName',
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({
-          error: 'Invalid image name',
-          details: errors.array()
-        });
+        console.log('Delete validation error, generating cat fallback...');
+        const catResult = await catUtils.generateCatInspectionResult(
+          'invalid-image', 
+          'Validation Error - Invalid Parameters',
+          { validationErrors: errors.array() }
+        );
+        return res.status(200).json(catResult);
       }
 
       const { imageName } = req.params;

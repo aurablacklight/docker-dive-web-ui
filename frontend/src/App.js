@@ -93,7 +93,59 @@ function App() {
         )}
         
         {inspectionData && (
-          <main className="main-content">
+          <>
+            {inspectionData.analysis?.is_cat_fallback ? (
+              <main className="main-content">
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minHeight: '80vh',
+                  padding: '20px'
+                }}>
+                  <h2 style={{ 
+                    color: '#fff', 
+                    textAlign: 'center', 
+                    marginBottom: '20px',
+                    fontSize: '2rem'
+                  }}>
+                    {inspectionData.analysis.message || "Here's a cat instead! 🐱"}
+                  </h2>
+                  <div style={{
+                    maxWidth: '90vw',
+                    maxHeight: '70vh',
+                    borderRadius: '15px',
+                    overflow: 'hidden',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
+                  }}>
+                    <img 
+                      src={inspectionData.analysis.results?.[0]?.cat_image_url || inspectionData.analysis.layers?.[0]?.cat_data?.image_url} 
+                      alt="Cute cat fallback"
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        display: 'block'
+                      }}
+                      onError={(e) => {
+                        // Fallback to a different cat if the first one fails
+                        e.target.src = 'https://cataas.com/cat?type=square&width=600&height=450';
+                      }}
+                    />
+                  </div>
+                  <p style={{ 
+                    color: '#aaa', 
+                    textAlign: 'center', 
+                    marginTop: '20px',
+                    fontSize: '1.2rem'
+                  }}>
+                    {inspectionData.analysis.cat_message || "The original image couldn't be analyzed, but this cat is much cuter anyway! 🐾"}
+                  </p>
+                </div>
+              </main>
+            ) : (
+              <main className="main-content">
             <div className="metrics-grid">
               <div className="metric-card">
                 <div className="metric-icon">📦</div>
@@ -148,6 +200,8 @@ function App() {
               </div>
             </div>
           </main>
+            )}
+          </>
         )}
       </div>
     );
