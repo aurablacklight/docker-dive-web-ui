@@ -1,0 +1,26 @@
+apiVersion: v2
+name: docker-dive-web-ui
+description: A Helm chart for Docker Dive Web UI - Modern web interface for analyzing Docker images
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.25.0-0"
+keywords:
+  - docker
+  - dive
+  - container
+  - analysis
+  - web-ui
+  - eks
+  - aws
+home: https://github.com/aurablacklight/docker-dive-web-ui
+sources:
+  - https://github.com/aurablacklight/docker-dive-web-ui
+maintainers:
+  - name: aurablacklight
+    url: https://github.com/aurablacklight
+annotations:
+  category: Development Tools
+  # AWS EKS compatible annotations
+  eks.amazonaws.com/compute-type: ec2
+  eks.amazonaws.com/nodegroup-image: AL2_x86_64

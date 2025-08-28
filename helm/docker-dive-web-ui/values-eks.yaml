@@ -1,0 +1,180 @@
+# Example values for AWS EKS deployment
+# Copy this file and customize for your EKS cluster
+
+# Basic configuration
+replicaCount: 2
+nameOverride: ""
+fullnameOverride: ""
+
+# Image configuration
+image:
+  frontend:
+    repository: your-account.dkr.ecr.us-west-2.amazonaws.com/docker-dive-frontend
+    pullPolicy: IfNotPresent
+    tag: "latest"
+  backend:
+    repository: your-account.dkr.ecr.us-west-2.amazonaws.com/docker-dive-backend
+    pullPolicy: IfNotPresent
+    tag: "latest"
+
+# Use ECR credentials for private registries
+imagePullSecrets:
+  - name: ecr-registry-helper
+
+# Enable ingress with AWS Load Balancer Controller
+ingress:
+  enabled: true
+  className: "alb"
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-west-2:123456789012:certificate/your-cert-id
+    alb.ingress.kubernetes.io/healthcheck-path: /api/health
+  hosts:
+    - host: docker-dive.yourdomain.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: docker-dive-web-ui-tls
+      hosts:
+        - docker-dive.yourdomain.com
+
+# Production-ready resource limits
+resources:
+  frontend:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  backend:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+# Enable autoscaling
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# High availability configuration
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# EKS node targeting
+nodeSelector:
+  eks.amazonaws.com/nodegroup: worker-nodes
+  kubernetes.io/arch: amd64
+
+# Multi-AZ anti-affinity
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - docker-dive-web-ui
+        topologyKey: topology.kubernetes.io/zone
+
+# Enable persistent storage with EBS
+persistence:
+  enabled: true
+  storageClass: "gp3"
+  size: 20Gi
+  annotations:
+    ebs.csi.aws.com/encrypted: "true"
+
+# AWS specific configurations
+aws:
+  region: us-west-2
+  
+  # IRSA configuration
+  serviceAccount:
+    create: true
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/docker-dive-web-ui-role
+    name: "docker-dive-web-ui"
+  
+  # Target specific node groups
+  nodeGroup:
+    instanceTypes: 
+      - t3.medium
+      - t3.large
+    availabilityZones:
+      - us-west-2a
+      - us-west-2b
+      - us-west-2c
+    labels:
+      workload-type: web-application
+  
+  # EBS CSI configuration
+  ebs:
+    enabled: true
+    storageClass:
+      name: gp3
+      type: gp3
+      encrypted: true
+      kmsKeyId: arn:aws:kms:us-west-2:123456789012:key/your-kms-key-id
+      iopsPerGB: 3
+      throughput: 125
+  
+  # Load balancer settings
+  loadBalancer:
+    controller:
+      enabled: true
+    targetGroupBinding: ip
+    crossZoneLoadBalancing: true
+    ssl:
+      enabled: true
+      certificateArn: arn:aws:acm:us-west-2:123456789012:certificate/your-cert-id
+
+# Enable monitoring if Prometheus is available
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+
+# Network security
+networkPolicy:
+  enabled: true
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            name: ingress-nginx
+      - namespaceSelector:
+          matchLabels:
+            name: aws-load-balancer-controller
+      ports:
+      - protocol: TCP
+        port: 80
+      - protocol: TCP
+        port: 3000
+  egress:
+    - to: []
+      ports:
+      - protocol: TCP
+        port: 443
+      - protocol: TCP
+        port: 80
+      - protocol: UDP
+        port: 53

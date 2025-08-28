@@ -1,0 +1,343 @@
+# Default values for docker-dive-web-ui
+replicaCount: 1
+
+image:
+  frontend:
+    repository: dive-inspector-frontend
+    pullPolicy: IfNotPresent
+    tag: "latest"
+  backend:
+    repository: dive-inspector-backend
+    pullPolicy: IfNotPresent
+    tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# AWS EKS specific configurations
+aws:
+  # EKS cluster configuration
+  region: us-west-2
+  # IAM roles for service accounts (IRSA)
+  serviceAccount:
+    # Enable IRSA for AWS services integration
+    enableIRSA: false
+    roleArn: ""
+  # EKS node group preferences
+  nodeSelector:
+    # Use this to target specific node groups
+    eks.amazonaws.com/nodegroup: ""
+    # Instance type preferences
+    beta.kubernetes.io/instance-type: ""
+  # EBS CSI driver for persistent volumes
+  storageClass:
+    # Use gp3 for better performance and cost efficiency
+    name: "gp3"
+    # EKS optimized storage class
+    provisioner: "ebs.csi.aws.com"
+  # AWS Load Balancer Controller annotations
+  loadBalancer:
+    # Use AWS ALB for ingress
+    type: "alb"
+    scheme: "internet-facing" # or "internal"
+    # Target type for ALB
+    targetType: "ip" # EKS Fargate requires 'ip'
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+    # For AWS EKS IRSA (IAM Roles for Service Accounts)
+    # eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/ROLE_NAME
+  # The name of the service account to use.
+  name: ""
+
+podAnnotations: {}
+  # AWS EKS specific pod annotations
+  # cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+
+podSecurityContext:
+  fsGroup: 2000
+  # EKS Fargate requires these settings
+  runAsNonRoot: true
+  runAsUser: 1000
+
+securityContext:
+  # Kubernetes 1.30 compatible security context
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+  capabilities:
+    drop:
+    - ALL
+  # Required for Docker socket access in EKS
+  seccompProfile:
+    type: RuntimeDefault
+
+service:
+  type: ClusterIP
+  frontend:
+    port: 80
+    targetPort: 80
+  backend:
+    port: 3000
+    targetPort: 3000
+  # AWS EKS service annotations
+  annotations: {}
+    # For AWS Load Balancer Controller
+    # service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    # service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+
+ingress:
+  enabled: false
+  className: "alb" # AWS Load Balancer Controller
+  annotations:
+    # AWS ALB Ingress Controller annotations for EKS
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    # AWS ACM certificate for SSL
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:region:account:certificate/cert-id
+    # Health check configuration
+    alb.ingress.kubernetes.io/healthcheck-path: /api/health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '30'
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: '5'
+    alb.ingress.kubernetes.io/healthy-threshold-count: '2'
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: '2'
+  hosts:
+    - host: docker-dive-web-ui.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: docker-dive-web-ui-tls
+  #    hosts:
+  #      - docker-dive-web-ui.local
+
+resources:
+  frontend:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  backend:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  # EKS specific autoscaling behavior
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 60
+
+# EKS node selector and scheduling preferences
+nodeSelector: {}
+  # For EKS node groups
+  # eks.amazonaws.com/nodegroup: worker-nodes
+  # beta.kubernetes.io/instance-type: t3.medium
+  # kubernetes.io/arch: amd64
+
+tolerations: []
+  # For EKS Fargate
+  # - key: eks.amazonaws.com/compute-type
+  #   operator: Equal
+  #   value: fargate
+  #   effect: NoSchedule
+
+affinity: {}
+  # AWS zone anti-affinity for high availability
+  # podAntiAffinity:
+  #   preferredDuringSchedulingIgnoredDuringExecution:
+  #   - weight: 100
+  #     podAffinityTerm:
+  #       labelSelector:
+  #         matchExpressions:
+  #         - key: app.kubernetes.io/name
+  #           operator: In
+  #           values:
+  #           - docker-dive-web-ui
+  #       topologyKey: topology.kubernetes.io/zone
+
+# Persistent Volume for Docker image cache
+persistence:
+  enabled: false
+  # Use AWS EBS CSI driver for persistent storage
+  storageClass: "gp3" # AWS EBS gp3 storage class
+  accessMode: ReadWriteOnce
+  size: 10Gi
+  annotations: {}
+    # AWS EBS specific annotations
+    # ebs.csi.aws.com/encrypted: "true"
+    # ebs.csi.aws.com/kmsKeyId: "arn:aws:kms:region:account:key/key-id"
+
+# Pod Disruption Budget for high availability
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# Network Policy for security
+networkPolicy:
+  enabled: false
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress: []
+
+# Pod Security Context (updated for Kubernetes 1.30)
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container Security Context (Kubernetes 1.30 compatible)
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1001
+  capabilities:
+    drop:
+    - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+# Health checks configuration
+healthChecks:
+  livenessProbe:
+    enabled: true
+    httpGet:
+      path: /api/health
+      port: 3000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    enabled: true
+    httpGet:
+      path: /api/health
+      port: 3000
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Monitoring and observability
+monitoring:
+  # Enable if Prometheus is available in EKS cluster
+  enabled: false
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    path: /metrics
+  grafana:
+    enabled: false
+    dashboardConfigMap: ""
+
+# AWS specific configurations
+aws:
+  region: us-west-2
+  
+  # IAM Roles for Service Accounts (IRSA)
+  serviceAccount:
+    # Enable IRSA for fine-grained AWS permissions
+    create: true
+    annotations:
+      # eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/docker-dive-web-ui-role
+    name: ""
+  
+  # EKS node group preferences
+  nodeGroup:
+    # Preferred instance types for the workload
+    instanceTypes: 
+      - t3.medium
+      - t3.large
+    # Preferred availability zones
+    availabilityZones: []
+      # - us-west-2a
+      # - us-west-2b
+    # Node group labels to target
+    labels: {}
+      # workload-type: web-application
+  
+  # AWS EBS CSI driver configuration
+  ebs:
+    enabled: true
+    storageClass:
+      name: gp3
+      type: gp3
+      encrypted: true
+      # kmsKeyId: arn:aws:kms:region:account:key/key-id
+      iopsPerGB: 3
+      throughput: 125
+  
+  # AWS Load Balancer Controller settings
+  loadBalancer:
+    controller:
+      enabled: true
+      # version: v2.7.0
+    # Target group binding mode
+    targetGroupBinding: ip
+    # Cross-zone load balancing
+    crossZoneLoadBalancing: true
+    # SSL/TLS settings
+    ssl:
+      enabled: false
+      # certificateArn: arn:aws:acm:region:account:certificate/cert-id
+      # policy: ELBSecurityPolicy-TLS-1-2-2017-01
+
+# Backend configuration
+backend:
+  env:
+    NODE_ENV: production
+    PORT: "3000"
+
+# Docker socket access for dive functionality
+dockerSocket:
+  enabled: true
+  hostPath: /var/run/docker.sock
+
+# Persistence for temporary files
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+
+# Health checks
+healthCheck:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 3

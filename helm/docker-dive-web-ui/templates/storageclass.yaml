@@ -1,0 +1,22 @@
+{{- if and .Values.aws.ebs.enabled .Values.persistence.enabled }}
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.aws.ebs.storageClass.name }}
+  labels:
+    {{- include "docker-dive-web-ui.labels" . | nindent 4 }}
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: ebs.csi.aws.com
+parameters:
+  type: {{ .Values.aws.ebs.storageClass.type }}
+  encrypted: {{ .Values.aws.ebs.storageClass.encrypted | quote }}
+  {{- if .Values.aws.ebs.storageClass.kmsKeyId }}
+  kmsKeyId: {{ .Values.aws.ebs.storageClass.kmsKeyId }}
+  {{- end }}
+  iopsPerGB: {{ .Values.aws.ebs.storageClass.iopsPerGB | quote }}
+  throughput: {{ .Values.aws.ebs.storageClass.throughput | quote }}
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+{{- end }}
