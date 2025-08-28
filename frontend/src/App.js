@@ -10,6 +10,8 @@ function App() {
   const [inspectionData, setInspectionData] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [images, setImages] = useState([]);
+  const [expandedLayers, setExpandedLayers] = useState(new Set()); // Track expanded layers
+  const [allLayersExpanded, setAllLayersExpanded] = useState(false);
 
   // Popular images to show by default
   const popularImages = [
@@ -64,6 +66,35 @@ function App() {
     setCurrentImage(null);
     setInspectionData(null);
     setError(null);
+    setExpandedLayers(new Set()); // Reset expanded layers
+    setAllLayersExpanded(false);
+  };
+
+  // Layer expansion handlers
+  const toggleLayer = (layerId) => {
+    const newExpanded = new Set(expandedLayers);
+    if (newExpanded.has(layerId)) {
+      newExpanded.delete(layerId);
+    } else {
+      newExpanded.add(layerId);
+    }
+    setExpandedLayers(newExpanded);
+  };
+
+  const toggleAllLayers = () => {
+    if (allLayersExpanded) {
+      // Collapse all
+      setExpandedLayers(new Set());
+      setAllLayersExpanded(false);
+    } else {
+      // Expand all
+      const allLayerIds = new Set();
+      inspectionData?.analysis?.layers?.forEach((layer, index) => {
+        allLayerIds.add(layer.id || index);
+      });
+      setExpandedLayers(allLayerIds);
+      setAllLayersExpanded(true);
+    }
   };
 
   if (currentView === 'inspect') {
@@ -182,21 +213,50 @@ function App() {
             </div>
             
             <div className="layers-section">
-              <h2>🔍 Layer Breakdown</h2>
+              <div className="layers-header">
+                <h2>🔍 Layer Breakdown</h2>
+                <button 
+                  className="expand-toggle-btn" 
+                  onClick={toggleAllLayers}
+                  title={allLayersExpanded ? "Collapse All Commands" : "Expand All Commands"}
+                >
+                  {allLayersExpanded ? '📁 Collapse All' : '📂 Expand All'}
+                </button>
+              </div>
               <div className="layers-list">
-                {inspectionData.analysis?.layers?.map((layer, index) => (
-                  <div key={layer.id || index} className="layer-item">
-                    <div className="layer-header">
-                      <span className="layer-index">#{index + 1}</span>
-                      <span className="layer-size">{formatBytes(layer.size || 0)}</span>
-                      <span className="layer-efficiency">{layer.efficiency || 0}%</span>
+                {inspectionData.analysis?.layers?.map((layer, index) => {
+                  const layerId = layer.id || index;
+                  const isExpanded = expandedLayers.has(layerId);
+                  const hasLongCommand = (layer.command || '').length > 100;
+                  
+                  return (
+                    <div key={layerId} className="layer-item">
+                      <div className="layer-header">
+                        <span className="layer-index">#{index + 1}</span>
+                        <span className="layer-size">{formatBytes(layer.size || 0)}</span>
+                        <span className="layer-efficiency">{layer.efficiency || 0}%</span>
+                      </div>
+                      <div className="layer-command-container">
+                        {hasLongCommand && (
+                          <button 
+                            className="command-toggle-btn"
+                            onClick={() => toggleLayer(layerId)}
+                            title={isExpanded ? "Collapse command" : "Expand command"}
+                          >
+                            <span className={`arrow ${isExpanded ? 'expanded' : ''}`}>▶</span>
+                            {isExpanded ? 'Hide full command' : 'Show full command'}
+                          </button>
+                        )}
+                        <div className={`layer-command ${isExpanded ? 'expanded' : ''}`}>
+                          {formatCommand(layer.command || 'Unknown command', isExpanded)}
+                        </div>
+                      </div>
+                      {layer.wasted_size > 0 && (
+                        <div className="layer-waste">⚠️ {formatBytes(layer.wasted_size)} wasted</div>
+                      )}
                     </div>
-                    <div className="layer-command">{layer.command || 'Unknown command'}</div>
-                    {layer.wasted_size > 0 && (
-                      <div className="layer-waste">⚠️ {formatBytes(layer.wasted_size)} wasted</div>
-                    )}
-                  </div>
-                )) || []}
+                  );
+                }) || []}
               </div>
             </div>
           </main>
@@ -274,6 +334,31 @@ function formatBytes(bytes) {
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+// Helper function to format Docker commands for better readability
+function formatCommand(command, isExpanded = false) {
+  if (!command) return 'Unknown command';
+  
+  if (isExpanded) {
+    // Show full command with proper line breaks for readability
+    return command
+      .replace(/&&/g, '\n  &&')
+      .replace(/\|\|/g, '\n  ||')
+      .replace(/;/g, ';\n  ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  
+  // Show truncated version
+  if (command.length <= 100) return command;
+  
+  // Split and show first line with truncation indicator
+  const firstLine = command.split(/&&|\|\|/)[0].trim();
+  if (firstLine.length > 80) {
+    return firstLine.substring(0, 77) + '...';
+  }
+  return firstLine + ' ...';
 }
 
 export default App;
