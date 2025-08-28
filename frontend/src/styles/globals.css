@@ -1,0 +1,197 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom global styles */
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  
+  body {
+    @apply bg-gradient-main min-h-screen text-white;
+  }
+}
+
+@layer components {
+  /* Glassmorphism components */
+  .glass {
+    @apply bg-white bg-opacity-10 backdrop-blur-md border border-white border-opacity-20 rounded-xl;
+  }
+  
+  .glass-card {
+    @apply glass p-6 shadow-lg hover:bg-opacity-15 transition-all duration-300;
+  }
+  
+  .glass-button {
+    @apply glass px-6 py-3 rounded-lg font-medium transition-all duration-200 hover:bg-opacity-20 hover:scale-105 active:scale-95;
+  }
+  
+  .glass-input {
+    @apply glass px-4 py-3 rounded-lg bg-white bg-opacity-5 border-white border-opacity-30 placeholder-white placeholder-opacity-60 focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 focus:bg-opacity-10 transition-all duration-200;
+  }
+  
+  /* Loading animations */
+  .loading-spinner {
+    @apply animate-spin rounded-full border-2 border-white border-opacity-30 border-t-white;
+  }
+  
+  .loading-pulse {
+    @apply animate-pulse-slow;
+  }
+  
+  /* Layer item styles */
+  .layer-item {
+    @apply glass-card mb-3 hover:shadow-xl transition-all duration-300 cursor-pointer;
+  }
+  
+  .layer-item:hover {
+    @apply transform hover:-translate-y-1;
+  }
+  
+  /* Command syntax highlighting */
+  .command-text {
+    @apply font-mono text-sm bg-black bg-opacity-30 rounded px-2 py-1 text-green-300;
+  }
+  
+  /* Progress bars */
+  .progress-bar {
+    @apply w-full bg-white bg-opacity-20 rounded-full h-2 overflow-hidden;
+  }
+  
+  .progress-fill {
+    @apply h-full bg-gradient-to-r from-primary-400 to-secondary-400 rounded-full transition-all duration-300;
+  }
+  
+  /* Efficiency metrics */
+  .efficiency-good {
+    @apply text-green-300;
+  }
+  
+  .efficiency-warning {
+    @apply text-yellow-300;
+  }
+  
+  .efficiency-bad {
+    @apply text-red-300;
+  }
+  
+  /* Responsive grid */
+  .image-grid {
+    @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6;
+  }
+  
+  /* Search results */
+  .search-results {
+    @apply max-h-96 overflow-y-auto space-y-4;
+  }
+  
+  /* Layer analysis layout */
+  .analysis-layout {
+    @apply grid grid-cols-1 lg:grid-cols-2 gap-6 h-full;
+  }
+  
+  /* Scrollbar customization */
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.5);
+  }
+}
+
+@layer utilities {
+  /* Animation utilities */
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-in-out;
+  }
+  
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+  
+  .animate-scale-in {
+    animation: scaleIn 0.2s ease-out;
+  }
+  
+  /* Hover effects */
+  .hover-lift {
+    @apply transition-transform duration-200 hover:-translate-y-1;
+  }
+  
+  .hover-glow {
+    @apply transition-shadow duration-200 hover:shadow-lg hover:shadow-white/20;
+  }
+  
+  /* Text gradients */
+  .text-gradient {
+    @apply bg-gradient-to-r from-primary-400 to-secondary-400 bg-clip-text text-transparent;
+  }
+  
+  /* Border gradients */
+  .border-gradient {
+    @apply border-2 border-transparent bg-gradient-to-r from-primary-400 to-secondary-400 bg-clip-border;
+  }
+}
+
+/* Custom keyframes */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  .glass-card {
+    @apply p-4;
+  }
+  
+  .analysis-layout {
+    @apply grid-cols-1;
+  }
+  
+  .image-grid {
+    @apply grid-cols-1 md:grid-cols-2;
+  }
+}

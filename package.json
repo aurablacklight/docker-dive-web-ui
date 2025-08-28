@@ -1,0 +1,59 @@
+{
+  "name": "dive-inspector",
+  "version": "1.0.0",
+  "description": "Modern web-based GUI for the dive Docker image inspection tool",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "install:all": "npm install && npm install --prefix backend && npm install --prefix frontend",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "build": "cd frontend && npm run build",
+    "start": "cd backend && npm start",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "cd backend && npm test",
+    "test:frontend": "cd frontend && npm test",
+    "lint": "npm run lint:backend && npm run lint:frontend",
+    "lint:backend": "cd backend && npm run lint",
+    "lint:frontend": "cd frontend && npm run lint",
+    "format": "npm run format:backend && npm run format:frontend",
+    "format:backend": "cd backend && npm run format",
+    "format:frontend": "cd frontend && npm run format",
+    "docker:build": "docker build -f docker/Dockerfile -t dive-inspector:latest .",
+    "docker:up": "docker-compose -f docker/docker-compose.yml up --build",
+    "docker:down": "docker-compose -f docker/docker-compose.yml down",
+    "setup": "chmod +x setup.sh && ./setup.sh",
+    "clean": "rm -rf node_modules backend/node_modules frontend/node_modules frontend/dist backend/logs backend/temp"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.12",
+    "concurrently": "^8.2.0",
+    "tailwind-scrollbar": "^4.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "keywords": [
+    "docker",
+    "dive",
+    "image-analysis",
+    "web-gui",
+    "container",
+    "layers"
+  ],
+  "author": "Dive Inspector Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-username/dive-inspector.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/dive-inspector/issues"
+  },
+  "homepage": "https://github.com/your-username/dive-inspector#readme"
+}
