@@ -5,20 +5,26 @@ A modern, containerized web interface for analyzing Docker images using the [div
 ## Features
 
 - 🔍 **Docker Image Analysis**: Analyze any Docker image for layer efficiency and waste detection
-- 📊 **Real-time Metrics**: Live efficiency scoring, wasted space analysis, and layer breakdown
-- 🎨 **Modern UI**: Beautiful glassmorphism design with responsive layout
+- � **Docker Hub Search**: Search and discover Docker images directly from Docker Hub
+- �📊 **Real-time Metrics**: Live efficiency scoring, wasted space analysis, and layer breakdown
+- 🎨 **Modern UI**: Beautiful glassmorphism design with responsive layout and smooth animations
 - 🐳 **Fully Containerized**: Multi-container architecture with Docker Compose
 - ⚡ **WebSocket Updates**: Real-time progress tracking during analysis
 - 🔬 **Layer-by-Layer**: Detailed breakdown of each Docker layer with file counts and sizes
 - 📈 **Efficiency Insights**: Actionable recommendations for image optimization
+- 🎯 **Interactive Commands**: Expandable/collapsible Docker layer commands with syntax highlighting
+- ☁️ **Kubernetes Ready**: Complete Helm chart for Kubernetes deployment with AWS EKS optimizations
+- 🔧 **Enhanced UX**: Intelligent error handling with graceful fallbacks
 
 ## Architecture
 
-- **Frontend**: React 18 with custom CSS glassmorphism design (Port 3001)
-- **Backend**: Node.js/Express API server with Socket.IO (Port 3000)  
-- **Analysis Engine**: Integrated dive binary with Docker CLI access
-- **Deployment**: Multi-container setup with nginx reverse proxy
-- **Networking**: Docker Compose with bridge networking and health checks
+- **Frontend**: React 18 with custom CSS glassmorphism design and interactive layer breakdown (Port 3001)
+- **Backend**: Node.js/Express API server with Socket.IO and Docker Hub integration (Port 3000)  
+- **Analysis Engine**: Integrated dive binary with Docker CLI access and enhanced error handling
+- **Search Engine**: Docker Hub API integration for image discovery and metadata retrieval
+- **Deployment**: Multi-container setup with nginx reverse proxy and health monitoring
+- **Networking**: Docker Compose with bridge networking and comprehensive health checks
+- **Kubernetes**: Production-ready Helm chart with AWS EKS 1.30 compatibility and auto-scaling
 
 ## Quick Start
 
@@ -47,26 +53,52 @@ The application will be available at:
 ### Analyzing Images
 
 1. Open http://localhost:3001 in your browser
-2. Enter a Docker image name (e.g., `nginx:alpine`, `node:18`, `ubuntu:latest`)
-3. Click "Analyze Image" to start the analysis
-4. View real-time results with efficiency metrics and layer breakdown
+2. **Search for images**: Use the search functionality to discover Docker images from Docker Hub
+3. **Browse results**: View image details including stars, downloads, and descriptions
+4. **Select and analyze**: Click on any image to start detailed layer analysis
+5. **Explore layers**: Use the expandable layer commands to view detailed Docker build steps
+6. **Optimize**: Review efficiency metrics and waste analysis for optimization opportunities
+
+### Key UI Features
+
+- **Expandable Commands**: Click arrow buttons to expand/collapse individual layer commands
+- **Global Controls**: Use "Expand All" / "Collapse All" buttons to control all layers at once
+- **Syntax Highlighting**: Monospace formatted commands with proper line breaks
+- **Interactive Search**: Real-time Docker Hub search with image metadata
+- **Progress Tracking**: Real-time WebSocket updates during image analysis
 
 ## API Endpoints
 
+### Core Analysis
 - `POST /api/inspect/:imageName` - Analyze a Docker image with dive
 - `GET /api/health` - Health check endpoint
-- `GET /api/search?q=<query>` - Search for Docker images
+- `DELETE /api/inspect/:imageName` - Clean up analysis artifacts
+
+### Docker Hub Integration  
+- `GET /api/search?q=<query>&limit=<number>` - Search Docker Hub for images
+- `GET /api/search/repository/:owner/:repo` - Get detailed repository information
 - `GET /api/images/local` - List local Docker images
+
+### Real-time Updates
 - `WebSocket /ws/inspect` - Real-time analysis progress updates
 
 ### Example API Usage
 
 ```bash
-# Analyze nginx:alpine image
+# Search for nginx images
+curl "http://localhost:3000/api/search?q=nginx&limit=10"
+
+# Get repository details
+curl http://localhost:3000/api/search/repository/library/nginx
+
+# Analyze nginx:alpine image  
 curl -X POST http://localhost:3000/api/inspect/nginx:alpine
 
 # Health check
 curl http://localhost:3000/api/health
+
+# Clean up analysis artifacts
+curl -X DELETE http://localhost:3000/api/inspect/nginx:alpine
 ```
 
 ## Development
@@ -117,7 +149,8 @@ Key environment variables in `docker-compose.yml`:
 │   Frontend      │    │     Backend      │
 │   (React)       │    │   (Node.js)      │
 │   Port: 3001    │───▶│   Port: 3000     │
-│   nginx         │    │   + dive binary  │
+│   nginx +       │    │   + dive binary  │
+│   Enhanced UI   │    │   + Docker Hub   │
 └─────────────────┘    └──────────────────┘
                               │
                               ▼
@@ -125,7 +158,42 @@ Key environment variables in `docker-compose.yml`:
                        │   Docker Engine  │
                        │   (via socket)   │
                        └──────────────────┘
+                              │
+                              ▼
+                       ┌──────────────────┐
+                       │  Kubernetes      │
+                       │  (Helm Chart)    │ 
+                       │  AWS EKS Ready   │
+                       └──────────────────┘
 ```
+
+## Kubernetes Deployment
+
+This project includes a comprehensive Helm chart for production Kubernetes deployment:
+
+### Features
+- **AWS EKS 1.30 Compatible**: Tested and optimized for latest Kubernetes
+- **Auto-scaling**: Horizontal Pod Autoscaler (HPA) configuration
+- **High Availability**: Pod Disruption Budgets and anti-affinity rules  
+- **Storage**: EBS CSI driver integration with persistent volumes
+- **Networking**: ALB Ingress Controller support with SSL termination
+- **Security**: IRSA (IAM Roles for Service Accounts) integration
+- **Monitoring**: Health checks and readiness probes
+
+### Quick Helm Deployment
+
+```bash
+# Install to Kubernetes cluster
+helm install docker-dive-ui ./helm/docker-dive-chart
+
+# Upgrade deployment
+helm upgrade docker-dive-ui ./helm/docker-dive-chart
+
+# Check status
+kubectl get pods,svc,ingress -l app.kubernetes.io/name=docker-dive-chart
+```
+
+See `helm/KUBERNETES-1.30-EKS-COMPATIBILITY.md` for detailed deployment instructions.
 
 ## Environment Requirements
 
@@ -137,10 +205,13 @@ Key environment variables in `docker-compose.yml`:
 ## Security Features
 
 - Container isolation with minimal privileges
-- Docker socket access restricted to backend container only
+- Docker socket access restricted to backend container only  
 - Input validation and sanitization on all endpoints
 - Rate limiting on analysis endpoints
 - CORS properly configured for frontend/backend communication
+- Enhanced error handling with graceful degradation
+- Kubernetes RBAC integration for cluster deployments
+- AWS IRSA support for secure cloud resource access
 
 ## Troubleshooting
 
@@ -149,6 +220,15 @@ Key environment variables in `docker-compose.yml`:
 1. **Port conflicts**: Ensure ports 3000 and 3001 are available
 2. **Docker socket**: Verify Docker Desktop is running and socket is accessible
 3. **Container startup**: Check logs with `docker-compose logs`
+4. **Search timeouts**: Docker Hub API may occasionally be slow - the UI handles this gracefully
+5. **Layer expansion**: If layer commands don't expand, check browser console for JavaScript errors
+
+### Performance Tips
+
+- **Image analysis**: Larger images (>1GB) may take 2-3 minutes to analyze
+- **Search results**: Limit search results to 25-50 for optimal performance  
+- **Browser memory**: For very large images, consider refreshing the page after analysis
+- **Kubernetes**: Use resource limits in production deployments
 
 ### Viewing Logs
 
