@@ -1,0 +1,296 @@
+name: 🏥 Health Monitor
+
+on:
+  schedule:
+    # Run every 2 hours (12 times/day = ~360 runs/month)
+    # This keeps us well within GitHub Free tier limits
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+    inputs:
+      alert_threshold:
+        description: 'Consecutive failures before alert'
+        required: false
+        default: '3'
+        type: string
+
+env:
+  AWS_REGION: us-east-1
+  EC2_INSTANCE_TAG: dive-inspector-server
+  HEALTH_ENDPOINT: "https://dive.docker-senpai.dev/api/health"
+
+jobs:
+  health-check:
+    name: 🏥 Service Health Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 🔧 Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_CICD_GITHUB_ACTIONS_USERID }}
+        aws-secret-access-key: ${{ secrets.AWS_CICD_GITHUB_ACTIONS_ACCESSKEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: 🏥 Production health check
+      id: health
+      run: |
+        echo "🔍 Checking production health endpoint..."
+        
+        # Multiple health checks with different methods
+        HEALTH_SCORE=0
+        
+        # 1. Basic HTTP health check
+        if curl -f -s --max-time 10 "${{ env.HEALTH_ENDPOINT }}" > /dev/null; then
+          echo "✅ HTTP health check: PASS"
+          HEALTH_SCORE=$((HEALTH_SCORE + 1))
+        else
+          echo "❌ HTTP health check: FAIL"
+        fi
+        
+        # 2. Response time check (should be under 2 seconds)
+        RESPONSE_TIME=$(curl -o /dev/null -s -w "%{time_total}" --max-time 10 "${{ env.HEALTH_ENDPOINT }}" || echo "999")
+        if (( $(echo "$RESPONSE_TIME < 2.0" | bc -l) )); then
+          echo "✅ Response time check: ${RESPONSE_TIME}s (PASS)"
+          HEALTH_SCORE=$((HEALTH_SCORE + 1))
+        else
+          echo "❌ Response time check: ${RESPONSE_TIME}s (FAIL - too slow)"
+        fi
+        
+        # 3. Status code check
+        STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${{ env.HEALTH_ENDPOINT }}" || echo "000")
+        if [ "$STATUS_CODE" = "200" ]; then
+          echo "✅ Status code check: $STATUS_CODE (PASS)"
+          HEALTH_SCORE=$((HEALTH_SCORE + 1))
+        else
+          echo "❌ Status code check: $STATUS_CODE (FAIL)"
+        fi
+        
+        # 4. Content validation (check for expected response)
+        CONTENT=$(curl -f -s --max-time 10 "${{ env.HEALTH_ENDPOINT }}" || echo "")
+        if echo "$CONTENT" | grep -q "ok\|healthy\|running"; then
+          echo "✅ Content validation: PASS"
+          HEALTH_SCORE=$((HEALTH_SCORE + 1))
+        else
+          echo "❌ Content validation: FAIL (unexpected content: $CONTENT)"
+        fi
+        
+        echo "📊 Health score: $HEALTH_SCORE/4"
+        echo "health-score=$HEALTH_SCORE" >> $GITHUB_OUTPUT
+        echo "response-time=$RESPONSE_TIME" >> $GITHUB_OUTPUT
+        echo "status-code=$STATUS_CODE" >> $GITHUB_OUTPUT
+        
+        # Set overall health status
+        if [ $HEALTH_SCORE -ge 3 ]; then
+          echo "overall-status=healthy" >> $GITHUB_OUTPUT
+          echo "✅ Overall status: HEALTHY"
+        else
+          echo "overall-status=unhealthy" >> $GITHUB_OUTPUT
+          echo "❌ Overall status: UNHEALTHY"
+        fi
+        
+    - name: 🔍 Get EC2 instance status
+      id: ec2-status
+      if: steps.health.outputs.overall-status == 'unhealthy'
+      run: |
+        echo "🔍 Checking EC2 instance status..."
+        
+        INSTANCE_ID=$(aws ec2 describe-instances \
+          --filters "Name=tag:Name,Values=${{ env.EC2_INSTANCE_TAG }}" \
+                    "Name=instance-state-name,Values=running,stopped,stopping,pending" \
+          --query "Reservations[0].Instances[0].InstanceId" \
+          --output text)
+        
+        if [ "$INSTANCE_ID" = "None" ] || [ "$INSTANCE_ID" = "null" ]; then
+          echo "❌ No EC2 instance found with tag: ${{ env.EC2_INSTANCE_TAG }}"
+          echo "instance-status=not-found" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        INSTANCE_STATE=$(aws ec2 describe-instances \
+          --instance-ids "$INSTANCE_ID" \
+          --query "Reservations[0].Instances[0].State.Name" \
+          --output text)
+          
+        echo "📊 EC2 Instance: $INSTANCE_ID"
+        echo "📊 State: $INSTANCE_STATE"
+        echo "instance-id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+        echo "instance-status=$INSTANCE_STATE" >> $GITHUB_OUTPUT
+        
+    - name: 🔄 Auto-restart unhealthy services
+      if: steps.health.outputs.overall-status == 'unhealthy' && steps.ec2-status.outputs.instance-status == 'running'
+      run: |
+        echo "🔄 Attempting automatic service restart..."
+        
+        # Send restart command via SSM
+        aws ssm send-command \
+          --instance-ids "${{ steps.ec2-status.outputs.instance-id }}" \
+          --document-name "AWS-RunShellScript" \
+          --parameters 'commands=["
+            echo \"🔄 Auto-restart initiated by health monitor\"
+            cd /opt/dive-inspector
+            
+            # Check current service status
+            echo \"📊 Current service status:\"
+            sudo docker-compose ps
+            
+            # Check logs for errors
+            echo \"📋 Recent error logs:\"
+            sudo docker-compose logs --tail=20 backend | grep -i error || echo \"No recent errors found\"
+            
+            # Restart services
+            echo \"🔄 Restarting services...\"
+            sudo docker-compose restart
+            
+            # Wait and verify
+            sleep 15
+            
+            # Health check
+            if curl -f http://localhost:3000/api/health > /dev/null 2>&1; then
+              echo \"✅ Auto-restart successful - service is healthy\"
+              echo \"\$(date): Auto-restart SUCCESS\" >> /var/log/dive-inspector-health.log
+            else
+              echo \"❌ Auto-restart failed - service still unhealthy\"
+              echo \"\$(date): Auto-restart FAILED\" >> /var/log/dive-inspector-health.log
+            fi
+            
+            echo \"📊 Final service status:\"
+            sudo docker-compose ps
+          "]' \
+          --output text \
+          --query "Command.CommandId" > restart_command_id.txt
+          
+        RESTART_COMMAND_ID=$(cat restart_command_id.txt)
+        echo "📝 Restart command ID: $RESTART_COMMAND_ID"
+        
+        # Wait for restart to complete
+        echo "⏳ Waiting for restart to complete..."
+        sleep 30
+        
+        # Check restart status
+        RESTART_STATUS=$(aws ssm get-command-invocation \
+          --command-id "$RESTART_COMMAND_ID" \
+          --instance-id "${{ steps.ec2-status.outputs.instance-id }}" \
+          --query "Status" \
+          --output text 2>/dev/null || echo "InProgress")
+          
+        echo "📊 Restart status: $RESTART_STATUS"
+        
+        if [ "$RESTART_STATUS" = "Success" ]; then
+          echo "✅ Auto-restart completed"
+        else
+          echo "❌ Auto-restart may have failed"
+        fi
+        
+    - name: 📊 Health monitoring summary
+      run: |
+        echo "## 🏥 Health Monitor Report" >> $GITHUB_STEP_SUMMARY
+        echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| 🏥 Overall Status | ${{ steps.health.outputs.overall-status == 'healthy' && '✅ Healthy' || '❌ Unhealthy' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| 📊 Health Score | ${{ steps.health.outputs.health-score }}/4 |" >> $GITHUB_STEP_SUMMARY
+        echo "| ⏱️ Response Time | ${{ steps.health.outputs.response-time }}s |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🌐 Status Code | ${{ steps.health.outputs.status-code }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🕐 Check Time | $(date -u) UTC |" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ steps.health.outputs.overall-status }}" = "unhealthy" ]; then
+          echo "| 🚨 Action Taken | Auto-restart attempted |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🖥️ EC2 Status | ${{ steps.ec2-status.outputs.instance-status }} |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+    - name: 🚨 Create issue on repeated failures
+      if: steps.health.outputs.overall-status == 'unhealthy'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // Check for existing open health issues
+          const { data: issues } = await github.rest.issues.listForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            state: 'open',
+            labels: 'health-alert'
+          });
+          
+          const healthIssue = issues.find(issue => 
+            issue.title.includes('🚨 Service Health Alert')
+          );
+          
+          const healthReport = `
+          ## 🚨 Service Health Alert
+          
+          **Timestamp:** ${new Date().toISOString()}
+          **Status:** ❌ UNHEALTHY
+          **Health Score:** ${{ steps.health.outputs.health-score }}/4
+          **Response Time:** ${{ steps.health.outputs.response-time }}s
+          **Status Code:** ${{ steps.health.outputs.status-code }}
+          **EC2 Status:** ${{ steps.ec2-status.outputs.instance-status }}
+          
+          ### Actions Taken
+          - ✅ Automatic restart attempted
+          - 🔍 Service logs checked
+          - 📊 Health monitoring active
+          
+          ### Next Steps
+          1. Check application logs: \`sudo docker-compose logs backend\`
+          2. Verify EC2 instance resources: \`htop\` and \`df -h\`
+          3. Manual deployment if needed: Use "Manual Deploy" workflow
+          4. Escalate if issue persists
+          
+          *This issue will auto-close when health checks pass.*
+          `;
+          
+          if (!healthIssue) {
+            // Create new health alert issue
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Service Health Alert - Automated Detection',
+              body: healthReport,
+              labels: ['health-alert', 'urgent', 'automated']
+            });
+          } else {
+            // Update existing issue with latest status
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: healthIssue.number,
+              body: `### 🔄 Health Check Update\n\n${healthReport}`
+            });
+          }
+          
+    - name: ✅ Close health issues on recovery
+      if: steps.health.outputs.overall-status == 'healthy'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // Find and close any open health alert issues
+          const { data: issues } = await github.rest.issues.listForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            state: 'open',
+            labels: 'health-alert'
+          });
+          
+          for (const issue of issues) {
+            if (issue.title.includes('🚨 Service Health Alert')) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `## ✅ Service Recovery Detected
+
+                **Timestamp:** ${new Date().toISOString()}
+                **Status:** ✅ HEALTHY
+                **Health Score:** ${{ steps.health.outputs.health-score }}/4
+                **Response Time:** ${{ steps.health.outputs.response-time }}s
+                
+                Service has recovered and is now healthy. Auto-closing this alert.`
+              });
+              
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed'
+              });
+            }
+          }

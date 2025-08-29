@@ -1,12 +1,12 @@
 # Docker Dive Web UI
 
-A modern, containerized web interface for analyzing Docker images using the [dive](https://github.com/wagoodman/dive) tool. Features a beautiful glassmorphism design and real-time Docker image analysis.
+A modern, containerized web interface for analyzing Docker images using the [dive](https://github.com/wagoodman/dive) tool. Features a beautiful glassmorphism design, real-time Docker image analysis, and fully automated CI/CD deployment.
 
 ## Features
 
 - 🔍 **Docker Image Analysis**: Analyze any Docker image for layer efficiency and waste detection
-- � **Docker Hub Search**: Search and discover Docker images directly from Docker Hub
-- �📊 **Real-time Metrics**: Live efficiency scoring, wasted space analysis, and layer breakdown
+- 🔍 **Docker Hub Search**: Search and discover Docker images directly from Docker Hub
+- 📊 **Real-time Metrics**: Live efficiency scoring, wasted space analysis, and layer breakdown
 - 🎨 **Modern UI**: Beautiful glassmorphism design with responsive layout and smooth animations
 - 🐳 **Fully Containerized**: Multi-container architecture with Docker Compose
 - ⚡ **WebSocket Updates**: Real-time progress tracking during analysis
@@ -15,6 +15,9 @@ A modern, containerized web interface for analyzing Docker images using the [div
 - 🎯 **Interactive Commands**: Expandable/collapsible Docker layer commands with syntax highlighting
 - ☁️ **Kubernetes Ready**: Complete Helm chart for Kubernetes deployment with AWS EKS optimizations
 - 🔧 **Enhanced UX**: Intelligent error handling with graceful fallbacks
+- 🚀 **CI/CD Automation**: Complete GitHub Actions workflows with automated deployment
+- 🏥 **Health Monitoring**: Automated health checks with auto-recovery and alerting
+- 🔒 **Security Scanning**: Comprehensive vulnerability scanning with automated issue creation
 
 ## Architecture
 
@@ -86,7 +89,55 @@ docker-compose restart
 # Your environment is now configured for fast builds!
 ```
 
-### ☁️ **Option 2: Production Infrastructure (Terraform + AWS + Cloudflare)**
+### 🚀 **Option 2: Automated CI/CD Deployment (100% FREE!)**
+
+This project includes complete GitHub Actions workflows for fully automated deployment at **zero cost**:
+
+#### **💰 FREE Tier Breakdown:**
+- ✅ **GitHub Repository Secrets**: FREE forever (unlimited)
+- ✅ **GitHub Actions**: 2,000 minutes/month (FREE for private repos)
+- ✅ **Our Usage**: ~400 minutes/month (well within limits!)
+- ✅ **Public Repos**: Unlimited GitHub Actions minutes
+- ✅ **Total Cost**: $0/month 🎉
+
+#### **CI/CD Features:**
+- ✅ **Automated Builds**: Leverages optimized Docker Bake for 13x faster builds
+- ✅ **Security Scanning**: Monthly vulnerability scanning with Trivy
+- ✅ **Health Monitoring**: Every 2 hours with auto-recovery
+- ✅ **Smart Deployment**: Only deploys on main branch changes
+- ✅ **Rollback Protection**: Automatic rollback on deployment failures
+- ✅ **Issue Automation**: Creates GitHub issues for critical problems
+
+#### **Workflow Types:**
+1. **Main CI/CD** (`.github/workflows/ci-cd.yml`): Build, test, and deploy on main branch
+2. **Manual Deploy** (`.github/workflows/manual-deploy.yml`): On-demand deployment
+3. **Health Monitor** (`.github/workflows/health-monitor.yml`): Runs every 2 hours
+4. **Security Scan** (`.github/workflows/security-scan.yml`): Monthly vulnerability scanning
+
+#### **Quick Setup:**
+```bash
+# 1. Configure GitHub Secrets (one-time setup - FREE!)
+# See .github/SECRETS-SETUP.md for detailed instructions
+
+# 2. Push to main branch for automatic deployment
+git push origin main
+
+# 3. Monitor deployment in GitHub Actions tab
+# 4. Your app auto-deploys to production!
+```
+
+#### **Manual Deployment Options:**
+- Go to GitHub → Actions → "Manual Deploy" → Run workflow
+- Force rebuild option for troubleshooting
+- Skip tests for emergency deployments
+
+#### **Monitoring & Alerts:**
+- **Health Checks**: Every 2 hours with auto-restart
+- **Security Scans**: Monthly with issue creation for vulnerabilities  
+- **Deployment Status**: Real-time feedback in GitHub Actions
+- **Auto-Recovery**: Service restart on health check failures
+
+### ☁️ **Option 3: Production Infrastructure (Terraform + AWS + Cloudflare)**
 
 Deploy a complete production-ready infrastructure with SSL, DDoS protection, and global CDN:
 
@@ -338,17 +389,60 @@ See `helm/KUBERNETES-1.30-EKS-COMPATIBILITY.md` for detailed deployment instruct
 4. **Search timeouts**: Docker Hub API may occasionally be slow - the UI handles this gracefully
 5. **Layer expansion**: If layer commands don't expand, check browser console for JavaScript errors
 
+### CI/CD Troubleshooting
+
+#### Common GitHub Actions Issues:
+
+**❌ "No EC2 instance found" error:**
+```bash
+# Verify your EC2 instance has the correct tag
+aws ec2 describe-instances --filters "Name=tag:Name,Values=dive-inspector"
+
+# If missing, add the tag to your instance
+aws ec2 create-tags --resources i-1234567890abcdef0 --tags Key=Name,Value=dive-inspector
+```
+
+**❌ "AccessDenied" for SSM commands:**
+```bash
+# Check if your GitHub Actions IAM user has correct permissions
+aws iam list-attached-user-policies --user-name github-actions-dive-inspector
+
+# Verify EC2 instance has SSM role attached
+aws ec2 describe-instances --instance-ids i-1234567890abcdef0 --query 'Reservations[0].Instances[0].IamInstanceProfile'
+```
+
+**❌ Health checks failing after deployment:**
+```bash
+# SSH to your EC2 instance and check service status
+sudo docker-compose ps
+sudo docker-compose logs backend
+
+# Restart services if needed
+sudo docker-compose restart
+```
+
+**❌ Manual deployment workflow not working:**
+- Verify AWS credentials are correctly set in GitHub repository secrets
+- Check that EC2 instance is running and accessible
+- Confirm SSM agent is running: `sudo systemctl status amazon-ssm-agent`
+
+#### Monitoring Deployment Status:
+1. **GitHub Actions**: Check the Actions tab for real-time deployment status
+2. **Health Endpoint**: Monitor https://your-domain.com/api/health
+3. **EC2 Logs**: SSH to instance and check: `sudo journalctl -u docker -f`
+
 ### Performance Tips
 
 - **Image analysis**: Larger images (>1GB) may take 2-3 minutes to analyze
 - **Search results**: Limit search results to 25-50 for optimal performance  
 - **Browser memory**: For very large images, consider refreshing the page after analysis
 - **Kubernetes**: Use resource limits in production deployments
+- **CI/CD Builds**: Incremental builds complete in ~1.5s with optimized caching
 
 ### Viewing Logs
 
 ```bash
-# All logs
+# Local development logs
 docker-compose logs
 
 # Backend only
@@ -356,6 +450,10 @@ docker-compose logs backend
 
 # Follow logs
 docker-compose logs -f backend
+
+# Production logs (via SSH to EC2)
+sudo docker-compose logs --tail=50 backend
+sudo journalctl -u docker -f
 ```
 
 ## TODO / Upcoming Features

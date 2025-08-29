@@ -45,3 +45,11 @@ deploy/secrets/
 # Docker build cache
 .buildx-cache/
 .buildx-cache-new/
+
+# Sensitive CI/CD documentation (local only)
+.github/SECRETS-SETUP.md
+.github/CI-CD-SUMMARY.md
+.github/FREE-TIER-MONITORING.md
+**/setup.md
+**/*-SETUP.md
+**/*-SUMMARY.md

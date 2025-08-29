@@ -1,0 +1,374 @@
+name: 🔒 Security Scan
+
+on:
+  schedule:
+    # Run monthly security scans (1st of each month)
+    # Reduces from weekly to monthly for free tier optimization
+    - cron: '0 6 1 * *'  # First day of each month at 6 AM UTC
+  push:
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'docker-bake.hcl'
+      - 'docker-compose.yml'
+      - '**/Dockerfile*'
+      - '**/package*.json'
+  workflow_dispatch:
+    inputs:
+      scan_type:
+        description: 'Type of security scan'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+        - full
+        - images-only
+        - dependencies-only
+
+jobs:
+  # =============================================================================
+  # IMAGE SECURITY SCANNING
+  # =============================================================================
+  image-security:
+    name: 🐳 Container Security
+    runs-on: ubuntu-latest
+    if: ${{ inputs.scan_type == 'full' || inputs.scan_type == 'images-only' || github.event_name != 'workflow_dispatch' }}
+    
+    strategy:
+      matrix:
+        target: [frontend, backend]
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: ⚡ Enable BuildKit optimizations
+      run: |
+        echo "BUILDX_BAKE_ENTITLEMENTS_FS=0" >> $GITHUB_ENV
+        echo "DOCKER_BUILDKIT=1" >> $GITHUB_ENV
+        echo "COMPOSE_DOCKER_CLI_BUILD=1" >> $GITHUB_ENV
+        
+    - name: 🏗️ Build image for security scanning
+      run: |
+        echo "🏗️ Building ${{ matrix.target }} for security scan..."
+        docker buildx bake ${{ matrix.target }} --load
+        
+    - name: 🔒 Run Trivy vulnerability scanner
+      uses: aquasec/trivy-action@master
+      with:
+        image-ref: 'dive-inspector-${{ matrix.target }}:latest'
+        format: 'sarif'
+        output: 'trivy-${{ matrix.target }}.sarif'
+        severity: 'CRITICAL,HIGH,MEDIUM'
+        
+    - name: 📊 Upload Trivy scan results to GitHub Security
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-${{ matrix.target }}.sarif'
+        category: 'trivy-${{ matrix.target }}'
+        
+    - name: 🔍 Generate detailed security report
+      run: |
+        echo "🔍 Generating detailed security report for ${{ matrix.target }}..."
+        
+        # Run comprehensive Trivy scan
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          -v ${{ github.workspace }}:/workspace \
+          aquasec/trivy:latest image \
+          --format table \
+          --severity CRITICAL,HIGH,MEDIUM,LOW \
+          --output /workspace/security-report-${{ matrix.target }}.txt \
+          dive-inspector-${{ matrix.target }}:latest
+          
+        # Count vulnerabilities by severity
+        CRITICAL=$(grep -c "CRITICAL" security-report-${{ matrix.target }}.txt || echo "0")
+        HIGH=$(grep -c "HIGH" security-report-${{ matrix.target }}.txt || echo "0")
+        MEDIUM=$(grep -c "MEDIUM" security-report-${{ matrix.target }}.txt || echo "0")
+        LOW=$(grep -c "LOW" security-report-${{ matrix.target }}.txt || echo "0")
+        
+        echo "critical-count=$CRITICAL" >> $GITHUB_ENV
+        echo "high-count=$HIGH" >> $GITHUB_ENV
+        echo "medium-count=$MEDIUM" >> $GITHUB_ENV
+        echo "low-count=$LOW" >> $GITHUB_ENV
+        
+        echo "📊 Security scan results for ${{ matrix.target }}:"
+        echo "   🔴 Critical: $CRITICAL"
+        echo "   🟠 High: $HIGH"
+        echo "   🟡 Medium: $MEDIUM"
+        echo "   🟢 Low: $LOW"
+        
+    - name: 📋 Upload security report artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-report-${{ matrix.target }}
+        path: security-report-${{ matrix.target }}.txt
+        retention-days: 30
+        
+    - name: 🚨 Check for critical vulnerabilities
+      run: |
+        if [ "${{ env.critical-count }}" -gt "0" ]; then
+          echo "🚨 CRITICAL VULNERABILITIES FOUND in ${{ matrix.target }}!"
+          echo "   Critical: ${{ env.critical-count }}"
+          echo "   High: ${{ env.high-count }}"
+          echo "Please review the security report and update dependencies."
+          exit 1
+        elif [ "${{ env.high-count }}" -gt "5" ]; then
+          echo "⚠️ Warning: High number of HIGH severity vulnerabilities (${{ env.high-count }}) in ${{ matrix.target }}"
+          echo "Consider updating dependencies soon."
+        else
+          echo "✅ No critical vulnerabilities found in ${{ matrix.target }}"
+        fi
+
+  # =============================================================================
+  # DEPENDENCY SECURITY SCANNING
+  # =============================================================================
+  dependency-security:
+    name: 📦 Dependency Security
+    runs-on: ubuntu-latest
+    if: ${{ inputs.scan_type == 'full' || inputs.scan_type == 'dependencies-only' || github.event_name != 'workflow_dispatch' }}
+    
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 📦 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: '${{ matrix.component }}/package-lock.json'
+        
+    - name: 📥 Install dependencies
+      working-directory: ./${{ matrix.component }}
+      run: npm ci
+      
+    - name: 🔍 Run npm audit
+      working-directory: ./${{ matrix.component }}
+      run: |
+        echo "🔍 Running npm audit for ${{ matrix.component }}..."
+        
+        # Run audit and capture output
+        npm audit --audit-level=moderate --json > audit-report.json || true
+        
+        # Parse results
+        CRITICAL=$(cat audit-report.json | jq '.metadata.vulnerabilities.critical // 0')
+        HIGH=$(cat audit-report.json | jq '.metadata.vulnerabilities.high // 0')
+        MODERATE=$(cat audit-report.json | jq '.metadata.vulnerabilities.moderate // 0')
+        LOW=$(cat audit-report.json | jq '.metadata.vulnerabilities.low // 0')
+        
+        echo "📊 Dependency audit results for ${{ matrix.component }}:"
+        echo "   🔴 Critical: $CRITICAL"
+        echo "   🟠 High: $HIGH"
+        echo "   🟡 Moderate: $MODERATE"
+        echo "   🟢 Low: $LOW"
+        
+        # Set environment variables for later steps
+        echo "dep-critical=$CRITICAL" >> $GITHUB_ENV
+        echo "dep-high=$HIGH" >> $GITHUB_ENV
+        echo "dep-moderate=$MODERATE" >> $GITHUB_ENV
+        echo "dep-low=$LOW" >> $GITHUB_ENV
+        
+        # Generate human-readable report
+        npm audit --audit-level=moderate > audit-human.txt || true
+        
+    - name: 📋 Upload dependency audit report
+      uses: actions/upload-artifact@v4
+      with:
+        name: dependency-audit-${{ matrix.component }}
+        path: ${{ matrix.component }}/audit-*.txt
+        retention-days: 30
+        
+    - name: 🔍 Check for outdated packages
+      working-directory: ./${{ matrix.component }}
+      run: |
+        echo "🔍 Checking for outdated packages in ${{ matrix.component }}..."
+        
+        # Check for outdated packages
+        npm outdated --json > outdated.json || true
+        
+        # Count outdated packages
+        OUTDATED_COUNT=$(cat outdated.json | jq 'length // 0')
+        echo "📊 Outdated packages: $OUTDATED_COUNT"
+        
+        if [ "$OUTDATED_COUNT" -gt "0" ]; then
+          echo "📋 Outdated packages found:"
+          npm outdated || true
+        else
+          echo "✅ All packages are up to date"
+        fi
+        
+    - name: 🚨 Fail on critical dependency vulnerabilities
+      run: |
+        if [ "${{ env.dep-critical }}" -gt "0" ]; then
+          echo "🚨 CRITICAL DEPENDENCY VULNERABILITIES FOUND in ${{ matrix.component }}!"
+          echo "   Critical: ${{ env.dep-critical }}"
+          echo "   High: ${{ env.dep-high }}"
+          echo "Run 'npm audit fix' to resolve automatically fixable issues."
+          exit 1
+        elif [ "${{ env.dep-high }}" -gt "3" ]; then
+          echo "⚠️ Warning: High number of HIGH severity dependency vulnerabilities (${{ env.dep-high }}) in ${{ matrix.component }}"
+          echo "Consider running 'npm audit fix' soon."
+        else
+          echo "✅ No critical dependency vulnerabilities found in ${{ matrix.component }}"
+        fi
+
+  # =============================================================================
+  # SECURITY SUMMARY AND REPORTING
+  # =============================================================================
+  security-summary:
+    name: 📊 Security Summary
+    runs-on: ubuntu-latest
+    needs: [image-security, dependency-security]
+    if: always()
+    
+    steps:
+    - name: 📥 Download all security reports
+      uses: actions/download-artifact@v4
+      with:
+        path: security-reports
+        
+    - name: 📊 Generate comprehensive security summary
+      run: |
+        echo "## 🔒 Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Scan Date:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+        echo "**Scan Type:** ${{ inputs.scan_type || 'scheduled' }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Container Security Status
+        echo "### 🐳 Container Security" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Status | Action Required |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|---------|----------------|" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ needs.image-security.result }}" = "success" ]; then
+          echo "| Frontend | ✅ Passed | None |" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend | ✅ Passed | None |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Frontend | ❌ Failed | Review security report |" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend | ❌ Failed | Review security report |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Dependency Security Status
+        echo "### 📦 Dependency Security" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Status | Action Required |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|---------|----------------|" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ needs.dependency-security.result }}" = "success" ]; then
+          echo "| Frontend | ✅ Passed | None |" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend | ✅ Passed | None |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Frontend | ❌ Failed | Run \`npm audit fix\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend | ❌ Failed | Run \`npm audit fix\` |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Overall Status
+        if [ "${{ needs.image-security.result }}" = "success" ] && [ "${{ needs.dependency-security.result }}" = "success" ]; then
+          echo "### ✅ Overall Security Status: PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "No critical security issues found. System is secure for deployment." >> $GITHUB_STEP_SUMMARY
+        else
+          echo "### ❌ Overall Security Status: FAILED" >> $GITHUB_STEP_SUMMARY
+          echo "Critical security issues found. Please review and resolve before deployment." >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "📋 **Security reports are available in the workflow artifacts.**" >> $GITHUB_STEP_SUMMARY
+        
+    - name: 🚨 Create security issue on critical findings
+      if: needs.image-security.result == 'failure' || needs.dependency-security.result == 'failure'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issueBody = `
+          ## 🚨 Critical Security Vulnerabilities Detected
+          
+          **Scan Date:** ${new Date().toISOString()}
+          **Triggered by:** ${{ github.event_name }}
+          
+          ### 🔍 Scan Results
+          - **Container Security:** ${{ needs.image-security.result }}
+          - **Dependency Security:** ${{ needs.dependency-security.result }}
+          
+          ### 🛠️ Immediate Actions Required
+          
+          #### If Container Security Failed:
+          1. Download security reports from workflow artifacts
+          2. Review Trivy scan results in GitHub Security tab
+          3. Update base images and rebuild containers
+          4. Re-run security scan to verify fixes
+          
+          #### If Dependency Security Failed:
+          1. Navigate to affected component directory
+          2. Run \`npm audit\` to see vulnerabilities
+          3. Run \`npm audit fix\` to auto-fix issues
+          4. For manual fixes, run \`npm update [package]\`
+          5. Test application after updates
+          
+          ### 📊 Security Reports
+          Check the workflow artifacts for detailed security reports.
+          
+          ### ⚠️ Deployment Impact
+          **DO NOT DEPLOY** until all critical security issues are resolved.
+          
+          *This issue was automatically created by the security scanning workflow.*
+          `;
+          
+          await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: '🚨 Critical Security Vulnerabilities - Immediate Action Required',
+            body: issueBody,
+            labels: ['security', 'critical', 'automated']
+          });
+          
+    - name: ✅ Auto-close resolved security issues
+      if: needs.image-security.result == 'success' && needs.dependency-security.result == 'success'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // Find and close resolved security issues
+          const { data: issues } = await github.rest.issues.listForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            state: 'open',
+            labels: 'security'
+          });
+          
+          for (const issue of issues) {
+            if (issue.title.includes('🚨 Critical Security Vulnerabilities')) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `## ✅ Security Issues Resolved
+
+                **Resolution Date:** ${new Date().toISOString()}
+                **Status:** All critical security vulnerabilities have been resolved.
+                
+                ### ✅ Current Status
+                - **Container Security:** ✅ Passed
+                - **Dependency Security:** ✅ Passed
+                
+                The system is now secure for deployment. Auto-closing this security alert.`
+              });
+              
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed'
+              });
+            }
+          }

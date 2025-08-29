@@ -1,0 +1,213 @@
+name: 🚨 Manual Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Force rebuild even if no changes'
+        required: false
+        default: false
+        type: boolean
+      skip_tests:
+        description: 'Skip tests (emergency deploy only)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  AWS_REGION: us-east-1
+  EC2_INSTANCE_TAG: dive-inspector-server
+
+jobs:
+  manual-deploy:
+    name: 🚨 Manual Deployment
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 🔧 Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_CICD_GITHUB_ACTIONS_USERID }}
+        aws-secret-access-key: ${{ secrets.AWS_CICD_GITHUB_ACTIONS_ACCESSKEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: 🐳 Set up Docker Buildx (if not skipping tests)
+      if: ${{ !inputs.skip_tests }}
+      uses: docker/setup-buildx-action@v3
+      
+    - name: 🧪 Run tests (if not skipped)
+      if: ${{ !inputs.skip_tests }}
+      run: |
+        echo "⚡ Enabling BuildKit optimizations..."
+        export BUILDX_BAKE_ENTITLEMENTS_FS=0
+        export DOCKER_BUILDKIT=1
+        export COMPOSE_DOCKER_CLI_BUILD=1
+        
+        echo "🏗️ Building for tests..."
+        docker buildx bake --load
+        
+        echo "🧪 Running backend tests..."
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          dive-inspector-backend:latest \
+          npm test
+          
+    - name: 🔍 Get EC2 instance ID
+      id: instance
+      run: |
+        INSTANCE_ID=$(aws ec2 describe-instances \
+          --filters "Name=tag:Name,Values=${{ env.EC2_INSTANCE_TAG }}" \
+                    "Name=instance-state-name,Values=running" \
+          --query "Reservations[0].Instances[0].InstanceId" \
+          --output text)
+        
+        if [ "$INSTANCE_ID" = "None" ] || [ "$INSTANCE_ID" = "null" ]; then
+          echo "❌ No running EC2 instance found with tag: ${{ env.EC2_INSTANCE_TAG }}"
+          exit 1
+        fi
+        
+        echo "instance-id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+        echo "✅ Found EC2 instance: $INSTANCE_ID"
+        
+    - name: 🚨 Manual deployment
+      run: |
+        echo "🚨 Starting MANUAL deployment..."
+        echo " Force rebuild: ${{ inputs.force_rebuild }}"
+        echo "⏩ Skip tests: ${{ inputs.skip_tests }}"
+        
+        # Create enhanced deployment script for manual deploy
+        FORCE_FLAG=""
+        if [ "${{ inputs.force_rebuild }}" = "true" ]; then
+          FORCE_FLAG="--no-cache"
+        fi
+        
+        aws ssm send-command \
+          --instance-ids "${{ steps.instance.outputs.instance-id }}" \
+          --document-name "AWS-RunShellScript" \
+          --parameters 'commands=["
+            cd /opt/dive-inspector
+            
+            echo \"🚨 MANUAL DEPLOYMENT INITIATED\"
+            echo \"📅 Timestamp: \$(date)\"
+            echo \"👤 Triggered by: ${{ github.actor }}\"
+            echo \"🔄 Force rebuild: ${{ inputs.force_rebuild }}\"
+            
+            # Store current state for rollback
+            CURRENT_COMMIT=\$(git rev-parse HEAD)
+            echo \"📝 Current commit: \$CURRENT_COMMIT\"
+            
+            # Pull latest changes
+            echo \"📥 Pulling latest code...\"
+            sudo git fetch origin
+            sudo git reset --hard origin/main
+            
+            NEW_COMMIT=\$(git rev-parse HEAD)
+            echo \"📝 New commit: \$NEW_COMMIT\"
+            
+            # Build with force flag if requested
+            echo \"🏗️ Building with optimized Docker...\"
+            if [ \"${{ inputs.force_rebuild }}\" = \"true\" ]; then
+              echo \"🔄 Force rebuilding without cache...\"
+              sudo docker buildx bake --no-cache
+            else
+              sudo -E docker buildx bake
+            fi
+            
+            # Pre-deployment backup
+            echo \"💾 Creating backup...\"
+            sudo docker-compose ps > /tmp/pre-deploy-status.txt
+            
+            # Health check before restart
+            echo \"🏥 Pre-deployment health check...\"
+            curl -f http://localhost:3000/api/health || echo \"⚠️ Service currently unhealthy\"
+            
+            # Restart services
+            echo \"🔄 Restarting services...\"
+            sudo docker-compose down
+            sudo docker-compose up -d
+            
+            # Enhanced health check with retry
+            echo \"🏥 Post-deployment health check...\"
+            for i in {1..60}; do
+              if curl -f http://localhost:3000/api/health > /dev/null 2>&1; then
+                echo \"✅ Health check passed!\"
+                break
+              fi
+              if [ \$i -eq 60 ]; then
+                echo \"❌ CRITICAL: Health check failed after 60 attempts\"
+                echo \"🚨 INITIATING ROLLBACK...\"
+                sudo git reset --hard \$CURRENT_COMMIT
+                sudo -E docker buildx bake
+                sudo docker-compose up -d
+                echo \"🔄 Rollback completed\"
+                exit 1
+              fi
+              echo \"⏳ Attempt \$i/60 - waiting for service...\"
+              sleep 2
+            done
+            
+            echo \"🎉 MANUAL DEPLOYMENT COMPLETED SUCCESSFULLY!\"
+            echo \"📊 Final service status:\"
+            sudo docker-compose ps
+            
+            # Log deployment event
+            echo \"\$(date): Manual deployment by ${{ github.actor }} - SUCCESS\" >> /var/log/dive-inspector-deployments.log
+          "]' \
+          --output text \
+          --query "Command.CommandId" > command_id.txt
+          
+        COMMAND_ID=$(cat command_id.txt)
+        echo "📝 Command ID: $COMMAND_ID"
+        
+        # Extended wait for manual deployments
+        echo "⏳ Waiting for manual deployment to complete..."
+        
+        for i in {1..120}; do
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ steps.instance.outputs.instance-id }}" \
+            --query "Status" \
+            --output text 2>/dev/null || echo "InProgress")
+            
+          echo "📊 Status: $STATUS (attempt $i/120)"
+          
+          if [ "$STATUS" = "Success" ]; then
+            echo "✅ Manual deployment completed successfully!"
+            break
+          elif [ "$STATUS" = "Failed" ]; then
+            echo "❌ Manual deployment failed!"
+            aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "${{ steps.instance.outputs.instance-id }}" \
+              --query "StandardErrorContent" \
+              --output text
+            exit 1
+          elif [ $i -eq 120 ]; then
+            echo "❌ Manual deployment timed out after 20 minutes"
+            exit 1
+          fi
+          
+          sleep 10
+        done
+        
+        # Get full deployment output
+        echo "📋 Manual deployment output:"
+        aws ssm get-command-invocation \
+          --command-id "$COMMAND_ID" \
+          --instance-id "${{ steps.instance.outputs.instance-id }}" \
+          --query "StandardOutputContent" \
+          --output text
+          
+    - name: 📊 Manual deployment summary
+      run: |
+        echo "## 🚨 Manual Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| 👤 Triggered by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🔄 Force rebuild | ${{ inputs.force_rebuild }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| ⏩ Skip tests | ${{ inputs.skip_tests }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🚀 Status | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🌐 Live URL | https://dive.docker-senpai.dev |" >> $GITHUB_STEP_SUMMARY
