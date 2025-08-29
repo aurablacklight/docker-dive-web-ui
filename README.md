@@ -2,6 +2,10 @@
 
 A modern, containerized web interface for analyzing Docker images using the [dive](https://github.com/wagoodman/dive) tool. Features a beautiful glassmorphism design, real-time Docker image analysis, and fully automated CI/CD deployment.
 
+## ✅ Latest Updates
+
+**🔧 Jest Testing Fixed + Simplified Architecture** - Single production environment with Jest support!
+
 ## Features
 
 - 🔍 **Docker Image Analysis**: Analyze any Docker image for layer efficiency and waste detection
