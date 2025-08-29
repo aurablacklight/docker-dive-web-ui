@@ -3,13 +3,16 @@ const request = require('supertest');
 
 // Test the actual app instance
 let app;
+let server;
 
 beforeAll(async () => {
-  // Import the app
-  app = require('../server');
+  // Import the app and server
+  const serverModule = require('../server');
+  app = serverModule.app;
+  server = serverModule.server;
   
   // Wait a moment for the server to initialize
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  await new Promise(resolve => setTimeout(resolve, 500));
 });
 
 describe('🧪 Backend Health and API Tests', () => {
@@ -96,8 +99,10 @@ describe('🧪 Backend Health and API Tests', () => {
 });
 
 afterAll(async () => {
-  // Clean up if needed
-  if (app && app.close) {
-    app.close();
+  // Clean up server connection
+  if (server && server.listening) {
+    await new Promise((resolve) => {
+      server.close(resolve);
+    });
   }
 });

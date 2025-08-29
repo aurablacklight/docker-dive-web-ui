@@ -243,19 +243,21 @@ process.on('SIGINT', () => {
   });
 });
 
-// Start server
-server.listen(PORT, () => {
-  console.log(`Dive Inspector API server running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`Health check: http://localhost:${PORT}/api/health`);
-  
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('API Documentation:');
-    console.log(`- Search: http://localhost:${PORT}/api/search?q=nginx`);
-    console.log(`- Popular: http://localhost:${PORT}/api/search/popular`);
-    console.log(`- Inspect: http://localhost:${PORT}/api/inspect/nginx`);
-    console.log(`- Images: http://localhost:${PORT}/api/images/local`);
-  }
-});
+// Start server only if not in test mode
+if (process.env.NODE_ENV !== 'test') {
+  server.listen(PORT, () => {
+    console.log(`Dive Inspector API server running on port ${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Health check: http://localhost:${PORT}/api/health`);
+    
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('API Documentation:');
+      console.log(`- Search: http://localhost:${PORT}/api/search?q=nginx`);
+      console.log(`- Popular: http://localhost:${PORT}/api/search/popular`);
+      console.log(`- Inspect: http://localhost:${PORT}/api/inspect/nginx`);
+      console.log(`- Images: http://localhost:${PORT}/api/images/local`);
+    }
+  });
+}
 
 module.exports = { app, server, io };
