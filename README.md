@@ -242,3 +242,32 @@ docker-compose logs backend
 # Follow logs
 docker-compose logs -f backend
 ```
+
+## TODO / Upcoming Features
+
+### 🎯 **Planned Enhancements**
+
+#### Search & UI Improvements
+- [ ] **Clear Search Functionality**: Add clear button near search bar to reset search results and input
+- [ ] **Search History**: Remember recent searches for quick access
+
+#### Settings & Configuration  
+- [ ] **Docker Registry Settings**: UI-based configuration for custom Docker registries
+- [ ] **Secure Authentication**: Safe handling of Docker registry credentials (username + access token)
+- [ ] **Registry Switching**: Support for multiple Docker registries (Docker Hub, ECR, GCR, etc.)
+- [ ] **Persistent Settings**: Save user preferences and configurations
+
+#### Advanced Features
+- [ ] **Image Comparison**: Side-by-side comparison of different image versions
+- [ ] **Export Reports**: Generate PDF/JSON reports of image analysis
+- [ ] **Custom Tags**: User-defined tags and notes for analyzed images
+- [ ] **Team Collaboration**: Share analysis results with team members
+
+#### Performance & Monitoring
+- [ ] **Analysis History**: Track and review previously analyzed images
+- [ ] **Batch Analysis**: Analyze multiple images simultaneously
+- [ ] **Performance Metrics**: Detailed timing and resource usage analytics
+- [ ] **Notification System**: Email/Slack notifications for completed analyses
+
+### 💡 **Feature Requests Welcome**
+Have an idea? [Open an issue](https://github.com/aurablacklight/docker-dive-web-ui/issues) on GitHub!
