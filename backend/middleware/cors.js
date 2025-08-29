@@ -12,9 +12,12 @@ const corsOptions = {
       'http://127.0.0.1:3000'
     ];
 
-    // In production, only allow same origin
+    // In production, add Cloudflare domain
     if (process.env.NODE_ENV === 'production') {
-      return callback(null, true);
+      allowedOrigins.push(
+        'https://dive.docker-senpai.dev',
+        'https://docker-senpai.dev'
+      );
     }
     
     if (allowedOrigins.indexOf(origin) !== -1) {

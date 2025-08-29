@@ -22,8 +22,11 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.NODE_ENV === 'production' ? false : "http://localhost:3001",
-    methods: ["GET", "POST"]
+    origin: process.env.NODE_ENV === 'production' 
+      ? ["https://dive.docker-senpai.dev", "https://docker-senpai.dev"]
+      : "http://localhost:3001",
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
@@ -74,13 +77,35 @@ if (process.env.NODE_ENV === 'production') {
 // CORS middleware - apply before all routes
 app.use(corsMiddleware);
 
-// Additional CORS headers for development
+// Additional CORS headers for development and production
 if (process.env.NODE_ENV !== 'production') {
   app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', 'http://localhost:3001');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
     res.header('Access-Control-Allow-Credentials', 'true');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+} else {
+  // Production CORS headers for Cloudflare domain
+  app.use((req, res, next) => {
+    const allowedOrigins = [
+      'https://dive.docker-senpai.dev',
+      'https://docker-senpai.dev'
+    ];
+    const origin = req.headers.origin;
+    
+    if (allowedOrigins.includes(origin)) {
+      res.header('Access-Control-Allow-Origin', origin);
+    }
+    
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    
     if (req.method === 'OPTIONS') {
       return res.sendStatus(200);
     }
