@@ -197,100 +197,15 @@ jobs:
           echo "| 🖥️ EC2 Status | ${{ steps.ec2-status.outputs.instance-status }} |" >> $GITHUB_STEP_SUMMARY
         fi
         
-    - name: 🚨 Create issue on repeated failures
+    # Note: GitHub issue creation disabled to avoid permission issues
+    # Health monitoring and auto-restart functionality still active
+    - name: 📝 Log health status
       if: steps.health.outputs.overall-status == 'unhealthy'
-      uses: actions/github-script@v7
-      with:
-        script: |
-          // Check for existing open health issues
-          const { data: issues } = await github.rest.issues.listForRepo({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            state: 'open',
-            labels: 'health-alert'
-          });
-          
-          const healthIssue = issues.find(issue => 
-            issue.title.includes('🚨 Service Health Alert')
-          );
-          
-          const healthReport = `
-          ## 🚨 Service Health Alert
-          
-          **Timestamp:** ${new Date().toISOString()}
-          **Status:** ❌ UNHEALTHY
-          **Health Score:** ${{ steps.health.outputs.health-score }}/4
-          **Response Time:** ${{ steps.health.outputs.response-time }}s
-          **Status Code:** ${{ steps.health.outputs.status-code }}
-          **EC2 Status:** ${{ steps.ec2-status.outputs.instance-status }}
-          
-          ### Actions Taken
-          - ✅ Automatic restart attempted
-          - 🔍 Service logs checked
-          - 📊 Health monitoring active
-          
-          ### Next Steps
-          1. Check application logs: \`sudo docker-compose logs backend\`
-          2. Verify EC2 instance resources: \`htop\` and \`df -h\`
-          3. Manual deployment if needed: Use "Manual Deploy" workflow
-          4. Escalate if issue persists
-          
-          *This issue will auto-close when health checks pass.*
-          `;
-          
-          if (!healthIssue) {
-            // Create new health alert issue
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: '🚨 Service Health Alert - Automated Detection',
-              body: healthReport,
-              labels: ['health-alert', 'urgent', 'automated']
-            });
-          } else {
-            // Update existing issue with latest status
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: healthIssue.number,
-              body: `### 🔄 Health Check Update\n\n${healthReport}`
-            });
-          }
-          
-    - name: ✅ Close health issues on recovery
+      run: |
+        echo "🚨 Health Alert: Service unhealthy but auto-restart attempted"
+        echo "Check GitHub Actions summary for details"
+        
+    - name: ✅ Log healthy status
       if: steps.health.outputs.overall-status == 'healthy'
-      uses: actions/github-script@v7
-      with:
-        script: |
-          // Find and close any open health alert issues
-          const { data: issues } = await github.rest.issues.listForRepo({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            state: 'open',
-            labels: 'health-alert'
-          });
-          
-          for (const issue of issues) {
-            if (issue.title.includes('🚨 Service Health Alert')) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issue.number,
-                body: `## ✅ Service Recovery Detected
-
-                **Timestamp:** ${new Date().toISOString()}
-                **Status:** ✅ HEALTHY
-                **Health Score:** ${{ steps.health.outputs.health-score }}/4
-                **Response Time:** ${{ steps.health.outputs.response-time }}s
-                
-                Service has recovered and is now healthy. Auto-closing this alert.`
-              });
-              
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issue.number,
-                state: 'closed'
-              });
-            }
-          }
+      run: |
+        echo "✅ Service is healthy - all systems operational"
