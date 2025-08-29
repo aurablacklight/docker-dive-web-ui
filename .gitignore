@@ -18,3 +18,26 @@ build/
 .dive.yaml
 .dive-ci
 docker-compose.override.yml
+
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform/
+.terraform.lock.hcl
+terraform.tfplan
+*.backup
+
+# Personal development files
+*.personal
+Untitled-*
+cleanup-filepaths.sh
+
+# Infrastructure secrets
+terraform/*.tfvars
+deploy/*.env
+deploy/secrets/
+
+# Local development
+.env.*
+*.local

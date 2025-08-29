@@ -26,13 +26,9 @@ A modern, containerized web interface for analyzing Docker images using the [div
 - **Networking**: Docker Compose with bridge networking and comprehensive health checks
 - **Kubernetes**: Production-ready Helm chart with AWS EKS 1.30 compatibility and auto-scaling
 
-## Quick Start
+## Deployment Options
 
-### Prerequisites
-- Docker and Docker Compose
-- Git
-
-### Installation & Usage
+### 🚀 **Option 1: Local Development (Docker Compose)**
 
 ```bash
 # Clone the repository
@@ -45,6 +41,43 @@ docker-compose up -d
 # Access the web interface
 open http://localhost:3001
 ```
+
+### ☁️ **Option 2: Production Infrastructure (Terraform + AWS + Cloudflare)**
+
+Deploy a complete production-ready infrastructure with SSL, DDoS protection, and global CDN:
+
+```bash
+# Prerequisites
+# - AWS CLI configured with appropriate permissions
+# - Terraform >= 1.0 installed
+# - Cloudflare account with API token
+
+cd terraform
+
+# Configure your deployment
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your domain and settings
+
+# Deploy infrastructure
+terraform init
+terraform plan
+terraform apply
+
+# Your application will be available at:
+# https://your-subdomain.your-domain.com
+```
+
+**What this creates:**
+- ✅ **AWS EC2 instance** (t3.micro - free tier eligible)
+- ✅ **Complete VPC setup** with subnets, security groups, IAM roles
+- ✅ **Cloudflare integration** with DNS, SSL certificates, and DDoS protection
+- ✅ **Automated deployment** with Docker Compose and reverse proxy
+- ✅ **Production security** with HTTPS, origin certificates, and firewall rules
+- ✅ **Cost optimized** for AWS free tier usage
+
+See [`terraform/README.md`](terraform/README.md) for detailed deployment instructions.
+
+### 🎛️ **Option 3: Kubernetes Production (Helm)**
 
 The application will be available at:
 - **Web UI**: http://localhost:3001 (React frontend)
