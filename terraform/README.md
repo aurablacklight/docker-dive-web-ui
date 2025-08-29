@@ -12,10 +12,15 @@ Internet → Cloudflare (WAF/DDoS/SSL) → AWS EC2 → Nginx → Docker Compose
 
 ### Multi-Layer Protection
 - **Cloudflare**: DDoS protection, WAF, SSL termination, rate limiting
-- **AWS Security Groups**: Restrict access to Cloudflare IPs only
+- **AWS Security Groups**: Restrict HTTP/HTTPS to Cloudflare IP ranges only
+- **UFW Firewall**: Host-level traffic filtering with Cloudflare IP allowlisting
 - **Nginx**: Additional rate limiting, security headers, request filtering
-- **Fail2ban**: SSH brute force protection
-- **UFW Firewall**: Host-level traffic filtering
+
+### Enhanced Security (Cloudflare-Only Access)
+- **Direct IP blocking**: Server only accepts traffic from Cloudflare edge servers
+- **No bypass attacks**: Attackers cannot hit your server directly
+- **Real visitor IP preservation**: Nginx configured to extract real IPs from Cloudflare headers
+- **Automatic IP updates**: Cloudflare IP ranges are current as of deployment
 
 ### Security Headers
 - Strict Transport Security (HSTS)
@@ -124,7 +129,7 @@ terraform/
 ## 🔧 Configuration Details
 
 ### Security Groups
-- **Port 80/443**: Cloudflare IPs only
+- **Port 80/443**: Cloudflare IP ranges only (prevents direct access)
 - **Port 22**: Disabled (uses SSM for secure access)
 - **All outbound**: Allowed for updates and Docker
 

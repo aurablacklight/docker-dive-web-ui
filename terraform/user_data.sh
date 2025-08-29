@@ -88,12 +88,40 @@ docker compose up -d
 systemctl start nginx
 systemctl enable nginx
 
-# Basic security
+# Configure UFW firewall for Cloudflare-only access
 ufw --force enable
 ufw default deny incoming
 ufw default allow outgoing
+
+# Allow SSH from anywhere (for SSM access)
 ufw allow ssh
-ufw allow 'Nginx Full'
+
+# Allow HTTP/HTTPS only from Cloudflare IP ranges
+CLOUDFLARE_IPS=(
+    "173.245.48.0/20"
+    "103.21.244.0/22"
+    "103.22.200.0/22"
+    "103.31.4.0/22"
+    "141.101.64.0/18"
+    "108.162.192.0/18"
+    "190.93.240.0/20"
+    "188.114.96.0/20"
+    "197.234.240.0/22"
+    "198.41.128.0/17"
+    "162.158.0.0/15"
+    "104.16.0.0/13"
+    "104.24.0.0/14"
+    "172.64.0.0/13"
+    "131.0.72.0/22"
+)
+
+# Add rules for each Cloudflare IP range
+for ip in "$${CLOUDFLARE_IPS[@]}"; do
+    ufw allow from $$ip to any port 80
+    ufw allow from $$ip to any port 443
+done
+
+echo "UFW configured to allow HTTP/HTTPS only from Cloudflare IPs"
 
 echo "Setup completed at $(date)"
 echo "Application should be available at: https://${domain_name}"

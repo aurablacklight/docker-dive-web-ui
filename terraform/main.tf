@@ -10,10 +10,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
-    cloudflare = {
-      source  = "cloudflare/cloudflare"
-      version = "~> 5.0"
-    }
+    # cloudflare = {
+    #   source  = "cloudflare/cloudflare"
+    #   version = "~> 5.0"
+    # }
   }
 }
 
@@ -34,9 +34,9 @@ provider "aws" {
   }
 }
 
-provider "cloudflare" {
-  api_token = var.cloudflare_api_token
-}
+# provider "cloudflare" {
+#   api_token = var.cloudflare_api_token
+# }
 
 # =============================================================================
 # DATA SOURCES  
@@ -77,6 +77,25 @@ data "aws_ami" "ubuntu" {
 locals {
   cloudflare_zone_id = "63f7d675a0e478f56835067cfb41b25e"
   subdomain = "${var.subdomain_name}.${var.domain_name}"
+  
+  # Cloudflare IP ranges for security group restrictions
+  cloudflare_ipv4_cidrs = [
+    "173.245.48.0/20",
+    "103.21.244.0/22",
+    "103.22.200.0/22", 
+    "103.31.4.0/22",
+    "141.101.64.0/18",
+    "108.162.192.0/18",
+    "190.93.240.0/20",
+    "188.114.96.0/20",
+    "197.234.240.0/22",
+    "198.41.128.0/17",
+    "162.158.0.0/15",
+    "104.16.0.0/13",
+    "104.24.0.0/14",
+    "172.64.0.0/13",
+    "131.0.72.0/22"
+  ]
 }
 
 # =============================================================================
@@ -115,22 +134,22 @@ resource "aws_security_group" "dive_inspector" {
   description = "Security group for Dive Inspector application"
   vpc_id      = module.vpc.vpc_id
 
-  # HTTP access from anywhere (Cloudflare will proxy)
+  # HTTP access from Cloudflare only
   ingress {
-    description = "HTTP from anywhere"
+    description = "HTTP from Cloudflare only"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = local.cloudflare_ipv4_cidrs
   }
 
-  # HTTPS access from anywhere (Cloudflare will proxy)
+  # HTTPS access from Cloudflare only
   ingress {
-    description = "HTTPS from anywhere"
+    description = "HTTPS from Cloudflare only"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = local.cloudflare_ipv4_cidrs
   }
 
   # SSH access removed - using SSM for secure access
@@ -241,19 +260,19 @@ module "ec2_instance" {
 # =============================================================================
 
 # =============================================================================
-# CLOUDFLARE CONFIGURATION (MINIMAL - DNS ONLY)
+# CLOUDFLARE CONFIGURATION (COMMENTED OUT - MANAGED MANUALLY)
 # =============================================================================
 
 # DNS A record pointing to EC2 instance
-resource "cloudflare_dns_record" "main" {
-  zone_id = local.cloudflare_zone_id
-  name    = var.subdomain_name
-  content = module.ec2_instance.public_ip
-  type    = "A"
-  ttl     = 1     # Must be 1 when proxied = true (Cloudflare manages TTL)
-  proxied = true  # Enable Cloudflare proxy for security and performance
-  comment = "Dive Inspector application - managed by Terraform"
-}
+# resource "cloudflare_dns_record" "main" {
+#   zone_id = local.cloudflare_zone_id
+#   name    = var.subdomain_name
+#   content = module.ec2_instance.public_ip
+#   type    = "A"
+#   ttl     = 1     # Must be 1 when proxied = true (Cloudflare manages TTL)
+#   proxied = true  # Enable Cloudflare proxy for security and performance
+#   comment = "Dive Inspector application - managed by Terraform"
+# }
 
 # =============================================================================
 # OUTPUTS
@@ -289,7 +308,7 @@ output "ssh_connection" {
   value       = "aws ssm start-session --target ${module.ec2_instance.id} --region ${var.aws_region}"
 }
 
-output "cloudflare_record_id" {
-  description = "Cloudflare DNS record ID"
-  value       = cloudflare_dns_record.main.id
-}
+# output "cloudflare_record_id" {
+#   description = "Cloudflare DNS record ID"
+#   value       = cloudflare_dns_record.main.id
+# }
