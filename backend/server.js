@@ -3,6 +3,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
+// Build cache test - small change to trigger rebuild
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');

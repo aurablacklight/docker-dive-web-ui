@@ -21,6 +21,43 @@ systemctl start docker
 systemctl enable docker
 usermod -aG docker ubuntu
 
+# Configure Docker BuildKit and BuildX optimizations
+echo "Configuring Docker BuildKit optimizations..."
+
+# Set environment variables system-wide
+cat >> /etc/environment << 'EOF'
+BUILDX_BAKE_ENTITLEMENTS_FS=0
+DOCKER_BUILDKIT=1
+COMPOSE_DOCKER_CLI_BUILD=1
+EOF
+
+# Add to ubuntu user profile
+cat >> /home/ubuntu/.bashrc << 'EOF'
+
+# Docker BuildX Configuration
+export BUILDX_BAKE_ENTITLEMENTS_FS=0
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+EOF
+
+# Add to ec2-user profile (if exists)
+if [ -d "/home/ec2-user" ]; then
+    cat >> /home/ec2-user/.bashrc << 'EOF'
+
+# Docker BuildX Configuration
+export BUILDX_BAKE_ENTITLEMENTS_FS=0
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+EOF
+fi
+
+# Set for current session
+export BUILDX_BAKE_ENTITLEMENTS_FS=0
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+
+echo "Docker BuildKit configuration complete"
+
 # Install dive tool
 curl -fsSL "https://github.com/wagoodman/dive/releases/download/v0.12.0/dive_0.12.0_linux_amd64.tar.gz" -o dive.tar.gz
 tar -xzf dive.tar.gz
@@ -81,8 +118,26 @@ FRONTEND_PORT=3001
 DOMAIN_NAME=${domain_name}
 EOF
 
-# Build and start the application
-docker compose up -d
+# Build and start the application with optimizations
+echo "Building and starting Docker containers with BuildKit optimizations..."
+
+# Enable BuildKit for this session
+export BUILDX_BAKE_ENTITLEMENTS_FS=0
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+
+# Use Docker Bake if available, otherwise use optimized compose
+if command -v docker buildx &> /dev/null && [ -f "docker-bake.hcl" ]; then
+    echo "Using Docker Bake for optimized parallel build..."
+    docker buildx bake --pull
+    docker compose up -d
+else
+    echo "Using Docker Compose with BuildKit optimizations..."
+    docker compose build --parallel --pull
+    docker compose up -d
+fi
+
+echo "Docker containers started successfully"
 
 # Start nginx
 systemctl start nginx

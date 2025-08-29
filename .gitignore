@@ -41,3 +41,7 @@ deploy/secrets/
 # Local development
 .env.*
 *.local
+
+# Docker build cache
+.buildx-cache/
+.buildx-cache-new/
