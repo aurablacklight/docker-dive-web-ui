@@ -1,3 +1,29 @@
+# =============================================================================
+# 🏥 HEALTH MONITORING WORKFLOW - TEMPORARILY DISABLED
+# =============================================================================
+# 
+# This workflow provides automated health monitoring and auto-recovery for
+# production deployments. Currently disabled while the application matures.
+#
+# 📋 FEATURES:
+# - Automated health checks every 2 hours
+# - Auto-restart on service failures  
+# - Performance monitoring and alerting
+# - EC2 instance status verification
+# - GitHub Actions summary reporting
+#
+# 🔄 TO RE-ENABLE:
+# 1. Rename this file back to: health-monitor.yml
+# 2. Ensure application has sufficient user base
+# 3. Verify health endpoint reliability
+# 4. Test monitoring thresholds in production
+#
+# 💡 RECOMMENDED FOR:
+# - Production applications with active users
+# - Services requiring high availability 
+# - Applications with established SLAs
+# =============================================================================
+
 name: 🏥 Health Monitor
 
 on:

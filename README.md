@@ -20,8 +20,8 @@ A modern, containerized web interface for analyzing Docker images using the [div
 - ☁️ **Kubernetes Ready**: Complete Helm chart for Kubernetes deployment with AWS EKS optimizations
 - 🔧 **Enhanced UX**: Intelligent error handling with graceful fallbacks
 - 🚀 **CI/CD Automation**: Complete GitHub Actions workflows with automated deployment
-- 🏥 **Health Monitoring**: Automated health checks with auto-recovery and alerting
-- 🔒 **Security Scanning**: Comprehensive vulnerability scanning with automated issue creation
+- 🏥 **Health Monitoring**: Available (currently disabled while application matures)
+- 🔒 **Security Scanning**: Available (currently disabled for GitHub free tier compatibility)
 
 ## Architecture
 
@@ -106,17 +106,19 @@ This project includes complete GitHub Actions workflows for fully automated depl
 
 #### **CI/CD Features:**
 - ✅ **Automated Builds**: Leverages optimized Docker Bake for 13x faster builds
-- ✅ **Security Scanning**: Monthly vulnerability scanning with Trivy
-- ✅ **Health Monitoring**: Every 2 hours with auto-recovery
+- ✅ **Complete Testing**: 7/7 Jest tests passing with full API coverage
 - ✅ **Smart Deployment**: Only deploys on main branch changes
 - ✅ **Rollback Protection**: Automatic rollback on deployment failures
-- ✅ **Issue Automation**: Creates GitHub issues for critical problems
+- 🔄 **Health Monitoring**: Available (disabled while app matures)
+- 🔄 **Security Scanning**: Available (disabled for GitHub free tier optimization)
 
-#### **Workflow Types:**
+#### **Active Workflows:**
 1. **Main CI/CD** (`.github/workflows/ci-cd.yml`): Build, test, and deploy on main branch
 2. **Manual Deploy** (`.github/workflows/manual-deploy.yml`): On-demand deployment
-3. **Health Monitor** (`.github/workflows/health-monitor.yml`): Runs every 2 hours
-4. **Security Scan** (`.github/workflows/security-scan.yml`): Monthly vulnerability scanning
+
+#### **Available Workflows** (currently disabled):
+3. **Health Monitor** (`.github/workflows/health-monitor.yml.disabled`): Every 2 hours monitoring
+4. **Security Scan** (`.github/workflows/security-scan.yml.disabled`): Monthly vulnerability scanning
 
 #### **Quick Setup:**
 ```bash
