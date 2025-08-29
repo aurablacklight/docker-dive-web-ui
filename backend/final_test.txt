@@ -1,0 +1,53 @@
+
+> dive-inspector-backend@1.0.0 test
+> jest --detectOpenHandles --forceExit
+
+  console.log
+    🧪 Setting up test environment...
+
+      at Object.log (test/setup.js:2:9)
+
+FAIL test/api.test.js (24.478 s)
+  🧪 Backend Health and API Tests
+    🏥 Health Endpoint
+      ✓ should return 200 and healthy status (121 ms)
+      ✓ should include system information (8 ms)
+    🔍 Search Endpoint
+      ✓ should handle search requests (502 ms)
+      ✓ should handle empty search gracefully (9 ms)
+    🐳 Docker Integration
+      ✕ should verify docker availability (10 ms)
+    🔒 Security Headers
+      ✓ should include security headers (9 ms)
+    📊 Performance
+      ✓ health endpoint should respond quickly (7 ms)
+
+  ● 🧪 Backend Health and API Tests › 🐳 Docker Integration › should verify docker availability
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      70 |         
+      71 |       expect(response.body.docker).toBeDefined();
+    > 72 |       expect(response.body.docker.available).toBe(true);
+         |                                              ^
+      73 |     });
+      74 |   });
+      75 |   
+
+      at Object.toBe (test/api.test.js:72:46)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 6 passed, 7 total
+Snapshots:   0 total
+Time:        25.249 s
+Ran all test suites.
+npm error Lifecycle script `test` failed with error:
+npm error code 1
+npm error path /mnt/c/Users/Derek/Documents/docker-dive-frontend/dive-inspector/backend
+npm error workspace dive-inspector-backend@1.0.0
+npm error location /mnt/c/Users/Derek/Documents/docker-dive-frontend/dive-inspector/backend
+npm error command failed
+npm error command sh -c jest --detectOpenHandles --forceExit
