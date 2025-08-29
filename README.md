@@ -507,3 +507,5 @@ Have an idea? [Open an issue](https://github.com/aurablacklight/docker-dive-web-
 - **Smart builds**: `./build.sh` (auto-detects best method)
 - **Setup**: `./setup-docker-local.sh` (one-time configuration)
 - **Performance**: 13x faster builds with BuildKit optimization
+# CI/CD Test
+This line was added to test the CI/CD pipeline.
