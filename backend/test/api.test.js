@@ -45,7 +45,7 @@ describe('🧪 Backend Health and API Tests', () => {
     test('should handle search requests', async () => {
       const response = await request(app)
         .get('/api/search')
-        .query({ term: 'alpine', limit: 5 })
+        .query({ q: 'alpine', limit: 5 })
         .expect(200);
         
       expect(response.body).toHaveProperty('results');
@@ -55,7 +55,7 @@ describe('🧪 Backend Health and API Tests', () => {
     test('should handle empty search gracefully', async () => {
       const response = await request(app)
         .get('/api/search')
-        .query({ term: '', limit: 5 })
+        .query({ q: '', limit: 5 })
         .expect(400);
         
       expect(response.body).toHaveProperty('error');

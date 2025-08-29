@@ -157,13 +157,44 @@ app.set('io', io);
 app.set('inspectionSockets', inspectionSockets);
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    version: '1.0.0',
-    environment: process.env.NODE_ENV || 'development'
-  });
+app.get('/api/health', async (req, res) => {
+  try {
+    // Check Docker availability
+    let dockerAvailable = false;
+    try {
+      await require('./utils/docker').checkDockerConnection();
+      dockerAvailable = true;
+    } catch (error) {
+      dockerAvailable = false;
+    }
+
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      version: '1.0.0',
+      environment: process.env.NODE_ENV || 'development',
+      system: {
+        memory: {
+          used: process.memoryUsage().heapUsed,
+          total: process.memoryUsage().heapTotal,
+          external: process.memoryUsage().external
+        },
+        platform: process.platform,
+        nodeVersion: process.version,
+        pid: process.pid
+      },
+      docker: {
+        available: dockerAvailable
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Health check failed',
+      error: error.message
+    });
+  }
 });
 
 // API routes
