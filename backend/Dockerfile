@@ -17,7 +17,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies (cached layer - only rebuilds when package*.json changes)
-RUN npm install --only=production
+RUN npm install
 
 # Copy application code (this layer rebuilds when source changes)
 COPY . .
