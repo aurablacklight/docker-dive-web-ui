@@ -44,8 +44,7 @@ jobs:
       run: |
         echo "🔑 Testing JFrog authentication..."
         jf rt ping
-        echo "🐳 Configuring Docker authentication..."
-        jf rt c export | grep url
+        echo "🐳 JFrog CLI configured for: ${{ vars.JF_URL }}"
         echo "✅ JFrog authentication successful!"
         
     - name: 🐳 Set up Docker Buildx
