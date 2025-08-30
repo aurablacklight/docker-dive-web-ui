@@ -1,26 +1,25 @@
 FROM node:18-alpine
 
-# Install dive binary
-RUN apk add --no-cache curl && \
-    curl -OL https://github.com/wagoodman/dive/releases/download/v0.13.1/dive_0.13.1_linux_amd64.tar.gz && \
+# Install system dependencies (cached layer - rarely changes)
+RUN apk add --no-cache curl docker-cli
+
+# Install dive binary (cached layer - rarely changes)
+RUN curl -OL https://github.com/wagoodman/dive/releases/download/v0.13.1/dive_0.13.1_linux_amd64.tar.gz && \
     tar -xzf dive_0.13.1_linux_amd64.tar.gz && \
     mv dive /usr/local/bin/ && \
     rm dive_0.13.1_linux_amd64.tar.gz && \
     chmod +x /usr/local/bin/dive
 
-# Install Docker CLI
-RUN apk add --no-cache docker-cli
-
 # Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy package files first (separate layer for dependency caching)
 COPY package*.json ./
 
-# Install ALL dependencies (including devDependencies for testing)
-RUN npm install
+# Install dependencies (cached layer - only rebuilds when package*.json changes)
+RUN npm ci --only=production
 
-# Copy application code
+# Copy application code (this layer rebuilds when source changes)
 COPY . .
 
 # Create temp directory for dive analysis

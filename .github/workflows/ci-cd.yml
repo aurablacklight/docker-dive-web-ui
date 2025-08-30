@@ -1,8 +1,19 @@
 name: 🚀 CI/CD Pipeline
 
 on:
-  push:
-    branches: [ main ]
+  push    - name: 🛠️ Setup JFrog CLI
+      uses: jfrog/setup-jfrog-cli@v4
+      env:
+        JF_URL: ${{ vars.JF_URL }}
+        JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
+        
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        driver-opts: |
+          image=moby/buildkit:buildx-stable-1
+          
+    - name: 📝 Extract metadatabranches: [ main ]
   pull_request:
     branches: [ main ]
 
@@ -48,37 +59,30 @@ jobs:
         echo "backend-tag=aurablacklight.jfrog.io/dive-docker/dive-inspector-backend:${{ github.run_number }}" >> $GITHUB_OUTPUT
         echo "frontend-tag=aurablacklight.jfrog.io/dive-docker/dive-inspector-frontend:${{ github.run_number }}" >> $GITHUB_OUTPUT
         
-    - name: 💾 Cache backend npm dependencies
-      uses: actions/cache@v4
-      with:
-        path: backend/node_modules
-        key: ${{ runner.os }}-backend-npm-${{ hashFiles('backend/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-backend-npm-
-          
-    - name: 💾 Cache frontend npm dependencies
-      uses: actions/cache@v4
-      with:
-        path: frontend/node_modules
-        key: ${{ runner.os }}-frontend-npm-${{ hashFiles('frontend/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-frontend-npm-
-          
     - name: 🏗️ Build and push backend
       env:
         BACKEND_IMAGE: ${{ steps.meta.outputs.backend-tag }}
       run: |
         cd backend
-        jf docker build -t $BACKEND_IMAGE .
-        jf docker push $BACKEND_IMAGE
+        jf docker buildx build \
+          --platform linux/amd64 \
+          --cache-from type=registry,ref=aurablacklight.jfrog.io/dive-docker/dive-inspector-backend:cache \
+          --cache-to type=registry,ref=aurablacklight.jfrog.io/dive-docker/dive-inspector-backend:cache,mode=max \
+          --tag $BACKEND_IMAGE \
+          --push .
         
     - name: 🏗️ Build and push frontend
       env:
         FRONTEND_IMAGE: ${{ steps.meta.outputs.frontend-tag }}
       run: |
         cd frontend
-        jf docker build -t $FRONTEND_IMAGE -f Dockerfile.prod .
-        jf docker push $FRONTEND_IMAGE
+        jf docker buildx build \
+          --platform linux/amd64 \
+          --cache-from type=registry,ref=aurablacklight.jfrog.io/dive-docker/dive-inspector-frontend:cache \
+          --cache-to type=registry,ref=aurablacklight.jfrog.io/dive-docker/dive-inspector-frontend:cache,mode=max \
+          --tag $FRONTEND_IMAGE \
+          --push \
+          --file Dockerfile.prod .
         
     - name: 🧪 Run backend tests
       run: |
@@ -104,8 +108,8 @@ jobs:
         echo "## 🚀 Build Performance" >> $GITHUB_STEP_SUMMARY
         echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
         echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Build Method | JFrog CLI + npm cache |" >> $GITHUB_STEP_SUMMARY
-        echo "| NPM Cache | ✅ Enabled |" >> $GITHUB_STEP_SUMMARY
+        echo "| Build Method | Docker Buildx + Layer Cache |" >> $GITHUB_STEP_SUMMARY
+        echo "| Layer Caching | ✅ Registry Cache |" >> $GITHUB_STEP_SUMMARY
         echo "| Registry | JFrog Artifactory |" >> $GITHUB_STEP_SUMMARY
         echo "| Build Number | ${{ github.run_number }} |" >> $GITHUB_STEP_SUMMARY
 
@@ -150,37 +154,43 @@ jobs:
       run: |
         echo "🚀 Executing deployment on EC2 instance..."
         
+        # Expand variables before sending to SSM
+        JF_TOKEN="${{ secrets.JF_ACCESS_TOKEN }}"
+        GITHUB_USER="${{ github.actor }}"
+        BACKEND_IMAGE="${{ needs.ci.outputs.backend-image }}"
+        FRONTEND_IMAGE="${{ needs.ci.outputs.frontend-image }}"
+        
         COMMAND_ID=$(aws ssm send-command \
           --instance-ids "${{ steps.instance.outputs.instance-id }}" \
           --document-name "AWS-RunShellScript" \
-          --parameters 'commands=[
-            "set -e",
-            "echo \"🚀 Starting deployment on $(date)\"", 
-            "cd /opt/dive-inspector",
-            "CURRENT_COMMIT=$(git rev-parse HEAD)",
-            "echo \"📝 Current commit: $CURRENT_COMMIT\"",
-            "git fetch origin",
-            "git reset --hard origin/main", 
-            "NEW_COMMIT=$(git rev-parse HEAD)",
-            "echo \"📝 New commit: $NEW_COMMIT\"",
-            "if [ \"$CURRENT_COMMIT\" = \"$NEW_COMMIT\" ]; then echo \"ℹ️ No changes detected\"; exit 0; fi",
-            "echo \"🔑 Logging into JFrog...\"",
-            "echo ${{ secrets.JF_ACCESS_TOKEN }} | docker login aurablacklight.jfrog.io -u ${{ github.actor }} --password-stdin",
-            "echo \"📝 Updating image tags...\"",
-            "sed -i \"s|dive-inspector-backend:latest|${{ needs.ci.outputs.backend-image }}|g\" docker-compose.yml",
-            "sed -i \"s|dive-inspector-frontend:latest|${{ needs.ci.outputs.frontend-image }}|g\" docker-compose.yml",
-            "echo \"🏥 Health check...\"",
-            "curl -f http://localhost:3000/api/health || echo \"⚠️ Service unhealthy\"",
-            "echo \"📦 Pulling images...\"", 
-            "docker compose pull",
-            "echo \"🔄 Restarting...\"",
-            "docker compose up -d",
-            "sleep 10",
-            "echo \"🏥 Post-deployment check...\"",
-            "for i in {1..30}; do if curl -f http://localhost:3000/api/health >/dev/null 2>&1; then echo \"✅ Healthy!\"; break; fi; sleep 2; done",
-            "echo \"🎉 Deployment complete!\"",
-            "docker compose ps"
-          ]' \
+          --parameters "commands=[
+            \"set -e\",
+            \"echo \\\"🚀 Starting deployment on \$(date)\\\"\", 
+            \"cd /opt/dive-inspector\",
+            \"CURRENT_COMMIT=\$(git rev-parse HEAD)\",
+            \"echo \\\"📝 Current commit: \$CURRENT_COMMIT\\\"\",
+            \"git fetch origin\",
+            \"git reset --hard origin/main\", 
+            \"NEW_COMMIT=\$(git rev-parse HEAD)\",
+            \"echo \\\"📝 New commit: \$NEW_COMMIT\\\"\",
+            \"if [ \\\"\$CURRENT_COMMIT\\\" = \\\"\$NEW_COMMIT\\\" ]; then echo \\\"ℹ️ No changes detected\\\"; exit 0; fi\",
+            \"echo \\\"🔑 Logging into JFrog...\\\"\",
+            \"echo $JF_TOKEN | docker login aurablacklight.jfrog.io -u $GITHUB_USER --password-stdin\",
+            \"echo \\\"📝 Updating image tags...\\\"\",
+            \"sed -i \\\"s|dive-inspector-backend:latest|$BACKEND_IMAGE|g\\\" docker-compose.yml\",
+            \"sed -i \\\"s|dive-inspector-frontend:latest|$FRONTEND_IMAGE|g\\\" docker-compose.yml\",
+            \"echo \\\"🏥 Health check...\\\"\",
+            \"curl -f http://localhost:3000/api/health || echo \\\"⚠️ Service unhealthy\\\"\",
+            \"echo \\\"📦 Pulling images...\\\"\", 
+            \"docker compose pull\",
+            \"echo \\\"🔄 Restarting...\\\"\",
+            \"docker compose up -d\",
+            \"sleep 10\",
+            \"echo \\\"🏥 Post-deployment check...\\\"\",
+            \"for i in {1..30}; do if curl -f http://localhost:3000/api/health >/dev/null 2>&1; then echo \\\"✅ Healthy!\\\"; break; fi; sleep 2; done\",
+            \"echo \\\"🎉 Deployment complete!\\\"\",
+            \"docker compose ps\"
+          ]" \
           --output text \
           --query "Command.CommandId")
         

@@ -1,16 +1,23 @@
 # =============================================================================
-# SIMPLE PRODUCTION DOCKERFILE FOR FRONTEND
-# Multi-stage build: compile React app + serve with nginx
+# OPTIMIZED PRODUCTION DOCKERFILE FOR FRONTEND
+# Multi-stage build with layer caching optimization
 # =============================================================================
 
 # Stage 1: Build the React app
 FROM node:18-alpine AS builder
 
 WORKDIR /app
-COPY package*.json ./
-RUN npm install
 
+# Copy package files first (separate layer for dependency caching)
+COPY package*.json ./
+
+# Install dependencies (cached layer - only rebuilds when package*.json changes)
+RUN npm ci --only=production
+
+# Copy source code (this layer rebuilds when source changes)
 COPY . .
+
+# Build the application
 RUN npm run build
 
 # Stage 2: Serve with nginx
@@ -21,9 +28,6 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-# Add basic security and performance
-RUN rm /etc/nginx/conf.d/default.conf.backup 2>/dev/null || true
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
