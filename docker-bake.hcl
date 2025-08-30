@@ -19,7 +19,7 @@ target "backend" {
 
 target "frontend" {
   context = "./frontend"
-  dockerfile = "Dockerfile"
+  dockerfile = "Dockerfile.prod"
   tags = ["${REGISTRY}-frontend:${TAG}"]
   platforms = ["linux/amd64"]
 }

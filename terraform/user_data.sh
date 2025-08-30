@@ -74,6 +74,7 @@ server {
     listen 80;
     server_name ${domain_name};
 
+    # Frontend static files
     location / {
         proxy_pass http://localhost:3001;
         proxy_http_version 1.1;
@@ -86,9 +87,22 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
+    # Backend API
     location /api/ {
         proxy_pass http://localhost:3000/;
         proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # WebSocket support for real-time updates
+    location /socket.io/ {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -110,32 +124,32 @@ cd /opt/dive-inspector
 apt-get install -y git
 git clone https://github.com/aurablacklight/docker-dive-web-ui.git .
 
-# Create production environment
-cat > .env << 'EOF'
+# Create necessary directories for container mounts
+mkdir -p temp logs
+
+# Set proper permissions for docker containers
+chown -R ubuntu:ubuntu /opt/dive-inspector
+
+# Ensure Docker socket permissions are correct for containers
+chmod 666 /var/run/docker.sock
+
+# Create simple production environment
+export DOMAIN_NAME="${domain_name}"
+
+cat > .env << EOF
 NODE_ENV=production
 PORT=3000
 FRONTEND_PORT=3001
 DOMAIN_NAME=${domain_name}
 EOF
 
-# Build and start the application with optimizations
-echo "Building and starting Docker containers with BuildKit optimizations..."
+# Build and start the application
+echo "Building and starting Docker containers..."
 
-# Enable BuildKit for this session
-export BUILDX_BAKE_ENTITLEMENTS_FS=0
-export DOCKER_BUILDKIT=1
-export COMPOSE_DOCKER_CLI_BUILD=1
-
-# Use Docker Bake if available, otherwise use optimized compose
-if command -v docker buildx &> /dev/null && [ -f "docker-bake.hcl" ]; then
-    echo "Using Docker Bake for optimized parallel build..."
-    docker buildx bake --pull
-    docker compose up -d
-else
-    echo "Using Docker Compose with BuildKit optimizations..."
-    docker compose build --parallel --pull
-    docker compose up -d
-fi
+# For initial deployment, build locally since no images exist yet
+# Future deployments will use pre-built images from GitHub Actions
+echo "Initial deployment: building images locally..."
+docker compose up -d --build
 
 echo "Docker containers started successfully"
 

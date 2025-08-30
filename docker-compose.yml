@@ -2,46 +2,43 @@ version: '3.8'
 
 services:
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: dive-inspector-backend:latest
     container_name: dive-inspector-backend
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - CORS_ORIGIN=https://${DOMAIN_NAME:-localhost}
     volumes:
-      # Mount Docker socket for dive to access Docker daemon
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./temp:/app/temp
     networks:
       - dive-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: dive-inspector-frontend:latest
     container_name: dive-inspector-frontend
     restart: unless-stopped
     ports:
-      - "3001:80"
+      - "127.0.0.1:3001:80"
     depends_on:
       backend:
         condition: service_healthy
     networks:
       - dive-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 networks:
   dive-network:
     driver: bridge
-
-volumes:
-  dive-temp:
-    driver: local

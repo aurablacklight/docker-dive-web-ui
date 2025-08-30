@@ -12,14 +12,16 @@ env:
 
 jobs:
   # =============================================================================
-  # CI: BUILD AND TEST
+  # CI: BUILD, TEST, AND PUSH IMAGES
   # =============================================================================
   ci:
-    name: 🔨 Build & Test
+    name: 🔨 Build, Test & Push
     runs-on: ubuntu-latest
     
     outputs:
       should-deploy: ${{ steps.changes.outputs.should-deploy }}
+      backend-image: ${{ steps.meta.outputs.backend-tag }}
+      frontend-image: ${{ steps.meta.outputs.frontend-tag }}
       
     steps:
     - name: 📥 Checkout code
@@ -37,33 +39,72 @@ jobs:
     - name: 🐳 Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
       
-    - name: ⚡ Enable BuildKit optimizations
-      run: |
-        echo "BUILDX_BAKE_ENTITLEMENTS_FS=0" >> $GITHUB_ENV
-        echo "DOCKER_BUILDKIT=1" >> $GITHUB_ENV
-        echo "COMPOSE_DOCKER_CLI_BUILD=1" >> $GITHUB_ENV
+    - name: 🔑 Login to GitHub Container Registry
+      if: steps.changes.outputs.should-deploy == 'true'
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
         
-    - name: 🏗️ Build with Docker Bake (Optimized)
+    - name: 📝 Extract metadata
+      id: meta
       run: |
-        echo "🚀 Starting optimized build..."
-        time docker buildx bake --load
-        echo "✅ Build completed!"
+        echo "backend-tag=ghcr.io/${{ github.repository_owner }}/dive-inspector-backend:${{ github.sha }}" >> $GITHUB_OUTPUT
+        echo "frontend-tag=ghcr.io/${{ github.repository_owner }}/dive-inspector-frontend:${{ github.sha }}" >> $GITHUB_OUTPUT
+        
+    - name: 💾 Cache backend npm dependencies
+      uses: actions/cache@v4
+      with:
+        path: backend/node_modules
+        key: ${{ runner.os }}-backend-npm-${{ hashFiles('backend/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-backend-npm-
+          
+    - name: 💾 Cache frontend npm dependencies
+      uses: actions/cache@v4
+      with:
+        path: frontend/node_modules
+        key: ${{ runner.os }}-frontend-npm-${{ hashFiles('frontend/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-frontend-npm-
+          
+    - name: 🏗️ Build and push backend
+      uses: docker/build-push-action@v5
+      with:
+        context: ./backend
+        file: ./backend/Dockerfile
+        push: ${{ steps.changes.outputs.should-deploy == 'true' }}
+        tags: ${{ steps.meta.outputs.backend-tag }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        
+    - name: 🏗️ Build and push frontend
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        file: ./frontend/Dockerfile.prod
+        push: ${{ steps.changes.outputs.should-deploy == 'true' }}
+        tags: ${{ steps.meta.outputs.frontend-tag }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
         
     - name: 🧪 Run backend tests
       run: |
         docker run --rm \
           -v /var/run/docker.sock:/var/run/docker.sock \
-          dive-inspector-backend:latest \
+          ${{ steps.meta.outputs.backend-tag }} \
           npm test
           
-    - name:  Build performance report
+    - name: 📊 Build performance report
       run: |
         echo "## 🚀 Build Performance" >> $GITHUB_STEP_SUMMARY
         echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
         echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Build Method | Docker Bake (Optimized) |" >> $GITHUB_STEP_SUMMARY
-        echo "| Build Time | ~1.5s (with cache) |" >> $GITHUB_STEP_SUMMARY
-        echo "| Caching | ✅ Enabled |" >> $GITHUB_STEP_SUMMARY
+        echo "| Build Method | Docker Buildx + GitHub Cache |" >> $GITHUB_STEP_SUMMARY
+        echo "| NPM Cache | ✅ Enabled |" >> $GITHUB_STEP_SUMMARY
+        echo "| Docker Cache | ✅ GitHub Actions Cache |" >> $GITHUB_STEP_SUMMARY
+        echo "| Registry | GitHub Container Registry |" >> $GITHUB_STEP_SUMMARY
 
   # =============================================================================
   # CD: DEPLOY TO EC2
@@ -102,62 +143,91 @@ jobs:
         echo "instance-id=$INSTANCE_ID" >> $GITHUB_OUTPUT
         echo "✅ Found EC2 instance: $INSTANCE_ID"
         
-    - name: 📦 Create deployment package
+    - name: � Deploy via SSM
       run: |
-        # Create deployment script
-        cat > deploy.sh << 'EOF'
-        #!/bin/bash
-        set -e
+        echo "🚀 Executing deployment on EC2 instance..."
         
-        echo "🚀 Starting deployment on $(date)"
-        
-        # Navigate to application directory
-        cd /opt/dive-inspector
-        
-        # Store current commit for rollback
-        CURRENT_COMMIT=$(git rev-parse HEAD)
-        echo "📝 Current commit: $CURRENT_COMMIT"
-        
-        # Pull latest changes
-        echo "📥 Pulling latest code..."
-        sudo git fetch origin
-        sudo git reset --hard origin/main
-        
-        NEW_COMMIT=$(git rev-parse HEAD)
-        echo "📝 New commit: $NEW_COMMIT"
-        
-        # Check if there are actually changes
-        if [ "$CURRENT_COMMIT" = "$NEW_COMMIT" ]; then
-          echo "ℹ️ No changes detected, skipping deployment"
-          exit 0
-        fi
-        
-        # Build with optimized method
-        echo "🏗️ Building with optimized Docker..."
-        sudo -E docker buildx bake
-        
-        # Health check before restart
-        echo "🏥 Running pre-deployment health check..."
-        curl -f http://localhost:3000/api/health || echo "⚠️ Service currently unhealthy"
-        
-        # Restart services
-        echo "🔄 Restarting services..."
-        sudo docker-compose up -d
-        
-        # Wait for services to be ready
-        echo "⏳ Waiting for services to start..."
-        sleep 10
-        
-        # Post-deployment health check
-        echo "🏥 Post-deployment health check..."
-        for i in {1..30}; do
-          if curl -f http://localhost:3000/api/health > /dev/null 2>&1; then
-            echo "✅ Health check passed!"
-            break
-          fi
-          if [ $i -eq 30 ]; then
-            echo "❌ Health check failed after 30 attempts"
-            echo "🔄 Rolling back to previous commit..."
+        aws ssm send-command \
+          --instance-ids "${{ steps.instance.outputs.instance-id }}" \
+          --document-name "AWS-RunShellScript" \
+          --parameters 'commands=["
+            set -e
+            echo \"🚀 Starting deployment on \$(date)\"
+            
+            # Navigate to application directory
+            cd /opt/dive-inspector
+            
+            # Store current commit for rollback
+            CURRENT_COMMIT=\$(git rev-parse HEAD)
+            echo \"📝 Current commit: \$CURRENT_COMMIT\"
+            
+            # Pull latest changes
+            echo \"📥 Pulling latest code...\"
+            git fetch origin
+            git reset --hard origin/main
+            
+            NEW_COMMIT=\$(git rev-parse HEAD)
+            echo \"📝 New commit: \$NEW_COMMIT\"
+            
+            # Check if there are actually changes
+            if [ \"\$CURRENT_COMMIT\" = \"\$NEW_COMMIT\" ]; then
+              echo \"ℹ️ No changes detected, skipping deployment\"
+              exit 0
+            fi
+            
+            # Login to GitHub Container Registry
+            echo \"🔑 Logging into GitHub Container Registry...\"
+            echo \${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u \${{ github.actor }} --password-stdin
+            
+            # Update docker-compose.yml with new image tags
+            echo \"📝 Updating image tags...\"
+            sed -i 's|image: dive-inspector-backend:latest|image: ${{ needs.ci.outputs.backend-image }}|g' docker-compose.yml
+            sed -i 's|image: dive-inspector-frontend:latest|image: ${{ needs.ci.outputs.frontend-image }}|g' docker-compose.yml
+            
+            # Health check before restart
+            echo \"🏥 Running pre-deployment health check...\"
+            curl -f http://localhost:3000/api/health || echo \"⚠️ Service currently unhealthy\"
+            
+            # Pull new images and restart services
+            echo \"📦 Pulling new images...\"
+            docker compose pull
+            
+            echo \"🔄 Restarting services...\"
+            docker compose up -d
+            
+            # Wait for services to be ready
+            echo \"⏳ Waiting for services to start...\"
+            sleep 10
+            
+            # Post-deployment health check
+            echo \"🏥 Post-deployment health check...\"
+            for i in {1..30}; do
+              if curl -f http://localhost:3000/api/health > /dev/null 2>&1; then
+                echo \"✅ Health check passed!\"
+                break
+              fi
+              if [ \$i -eq 30 ]; then
+                echo \"❌ Health check failed after 30 attempts\"
+                echo \"🔄 Rolling back to previous commit...\"
+                git reset --hard \$CURRENT_COMMIT
+                docker compose pull
+                docker compose up -d
+                exit 1
+              fi
+              echo \"⏳ Attempt \$i/30 - waiting for service...\"
+              sleep 2
+            done
+            
+            echo \"🎉 Deployment completed successfully!\"
+            echo \"📊 Service status:\"
+            docker compose ps
+            
+            # Cleanup old images
+            echo \"🧹 Cleaning up old images...\"
+            docker image prune -f
+          "]' \
+          --output text \
+          --query "Command.CommandId"
             sudo git reset --hard $CURRENT_COMMIT
             sudo -E docker buildx bake
             sudo docker-compose up -d
