@@ -57,10 +57,19 @@ jobs:
         BACKEND_IMAGE: ${{ steps.meta.outputs.backend-tag }}
       run: |
         cd backend
+        
+        # Login to JFrog first for cache access
+        jf docker login
+        
+        # Build with cache (gracefully handle cache miss)
         jf docker buildx build \
           --platform linux/amd64 \
           --cache-from type=registry,ref=aurablacklight.jfrog.io/dive-docker/dive-inspector-backend:cache \
           --cache-to type=registry,ref=aurablacklight.jfrog.io/dive-docker/dive-inspector-backend:cache,mode=max \
+          --tag $BACKEND_IMAGE \
+          --push . || \
+        jf docker buildx build \
+          --platform linux/amd64 \
           --tag $BACKEND_IMAGE \
           --push .
         
@@ -69,10 +78,20 @@ jobs:
         FRONTEND_IMAGE: ${{ steps.meta.outputs.frontend-tag }}
       run: |
         cd frontend
+        
+        # Login to JFrog first for cache access
+        jf docker login
+        
+        # Build with cache (gracefully handle cache miss)
         jf docker buildx build \
           --platform linux/amd64 \
           --cache-from type=registry,ref=aurablacklight.jfrog.io/dive-docker/dive-inspector-frontend:cache \
           --cache-to type=registry,ref=aurablacklight.jfrog.io/dive-docker/dive-inspector-frontend:cache,mode=max \
+          --tag $FRONTEND_IMAGE \
+          --push \
+          --file Dockerfile.prod . || \
+        jf docker buildx build \
+          --platform linux/amd64 \
           --tag $FRONTEND_IMAGE \
           --push \
           --file Dockerfile.prod .
