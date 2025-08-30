@@ -146,192 +146,45 @@ jobs:
         echo "instance-id=$INSTANCE_ID" >> $GITHUB_OUTPUT
         echo "✅ Found EC2 instance: $INSTANCE_ID"
         
-    - name: � Deploy via SSM
-      run: |
-        echo "🚀 Executing deployment on EC2 instance..."
-        
-        aws ssm send-command \
-          --instance-ids "${{ steps.instance.outputs.instance-id }}" \
-          --document-name "AWS-RunShellScript" \
-          --parameters 'commands=["
-            set -e
-            echo \"🚀 Starting deployment on \$(date)\"
-            
-            # Navigate to application directory
-            cd /opt/dive-inspector
-            
-            # Store current commit for rollback
-            CURRENT_COMMIT=\$(git rev-parse HEAD)
-            echo \"📝 Current commit: \$CURRENT_COMMIT\"
-            
-            # Pull latest changes
-            echo \"📥 Pulling latest code...\"
-            git fetch origin
-            git reset --hard origin/main
-            
-            NEW_COMMIT=\$(git rev-parse HEAD)
-            echo \"📝 New commit: \$NEW_COMMIT\"
-            
-            # Check if there are actually changes
-            if [ \"\$CURRENT_COMMIT\" = \"\$NEW_COMMIT\" ]; then
-              echo \"ℹ️ No changes detected, skipping deployment\"
-              exit 0
-            fi
-            
-            # Login to JFrog Artifactory
-            echo \"🔑 Logging into JFrog Artifactory...\"
-            echo \${{ secrets.JF_ACCESS_TOKEN }} | docker login aurablacklight.jfrog.io -u \${{ github.actor }} --password-stdin
-            
-            # Update docker-compose.yml with new image tags
-            echo \"📝 Updating image tags...\"
-            sed -i 's|image: dive-inspector-backend:latest|image: ${{ needs.ci.outputs.backend-image }}|g' docker-compose.yml
-            sed -i 's|image: dive-inspector-frontend:latest|image: ${{ needs.ci.outputs.frontend-image }}|g' docker-compose.yml
-            
-            # Health check before restart
-            echo \"🏥 Running pre-deployment health check...\"
-            curl -f http://localhost:3000/api/health || echo \"⚠️ Service currently unhealthy\"
-            
-            # Pull new images and restart services
-            echo \"📦 Pulling new images...\"
-            docker compose pull
-            
-            echo \"🔄 Restarting services...\"
-            docker compose up -d
-            
-            # Wait for services to be ready
-            echo \"⏳ Waiting for services to start...\"
-            sleep 10
-            
-            # Post-deployment health check
-            echo \"🏥 Post-deployment health check...\"
-            for i in {1..30}; do
-              if curl -f http://localhost:3000/api/health > /dev/null 2>&1; then
-                echo \"✅ Health check passed!\"
-                break
-              fi
-              if [ \$i -eq 30 ]; then
-                echo \"❌ Health check failed after 30 attempts\"
-                echo \"🔄 Rolling back to previous commit...\"
-                git reset --hard \$CURRENT_COMMIT
-                docker compose pull
-                docker compose up -d
-                exit 1
-              fi
-              echo \"⏳ Attempt \$i/30 - waiting for service...\"
-              sleep 2
-            done
-            
-            echo \"🎉 Deployment completed successfully!\"
-            echo \"📊 Service status:\"
-            docker compose ps
-            
-            # Cleanup old images
-            echo \"🧹 Cleaning up old images...\"
-            docker image prune -f
-          "]' \
-          --output text \
-          --query "Command.CommandId"
-            sudo git reset --hard $CURRENT_COMMIT
-            sudo -E docker buildx bake
-            sudo docker-compose up -d
-            exit 1
-          fi
-          echo "⏳ Attempt $i/30 - waiting for service..."
-          sleep 2
-        done
-        
-        echo "🎉 Deployment completed successfully!"
-        echo "📊 Service status:"
-        sudo docker-compose ps
-        EOF
-        
-        chmod +x deploy.sh
-        
     - name: 🚀 Deploy via SSM
       run: |
         echo "🚀 Executing deployment on EC2 instance..."
         
-        # Send deployment script to EC2
-        aws ssm send-command \
+        COMMAND_ID=$(aws ssm send-command \
           --instance-ids "${{ steps.instance.outputs.instance-id }}" \
           --document-name "AWS-RunShellScript" \
-          --parameters 'commands=["
-            cd /tmp
-            rm -f deploy.sh
-            cat > deploy.sh << '\''EOF'\''
-            #!/bin/bash
-            set -e
-            
-            echo \"🚀 Starting deployment on \$(date)\"
-            
-            # Navigate to application directory
-            cd /opt/dive-inspector
-            
-            # Store current commit for rollback
-            CURRENT_COMMIT=\$(git rev-parse HEAD)
-            echo \"📝 Current commit: \$CURRENT_COMMIT\"
-            
-            # Pull latest changes
-            echo \"📥 Pulling latest code...\"
-            sudo git fetch origin
-            sudo git reset --hard origin/main
-            
-            NEW_COMMIT=\$(git rev-parse HEAD)
-            echo \"📝 New commit: \$NEW_COMMIT\"
-            
-            # Check if there are actually changes
-            if [ \"\$CURRENT_COMMIT\" = \"\$NEW_COMMIT\" ]; then
-              echo \"ℹ️ No changes detected, skipping deployment\"
-              exit 0
-            fi
-            
-            # Build with optimized method
-            echo \"🏗️ Building with optimized Docker...\"
-            sudo -E docker buildx bake
-            
-            # Health check before restart
-            echo \"🏥 Running pre-deployment health check...\"
-            curl -f http://localhost:3000/api/health || echo \"⚠️ Service currently unhealthy\"
-            
-            # Restart services
-            echo \"🔄 Restarting services...\"
-            sudo docker-compose up -d
-            
-            # Wait for services to be ready
-            echo \"⏳ Waiting for services to start...\"
-            sleep 10
-            
-            # Post-deployment health check
-            echo \"🏥 Post-deployment health check...\"
-            for i in {1..30}; do
-              if curl -f http://localhost:3000/api/health > /dev/null 2>&1; then
-                echo \"✅ Health check passed!\"
-                break
-              fi
-              if [ \$i -eq 30 ]; then
-                echo \"❌ Health check failed after 30 attempts\"
-                echo \"🔄 Rolling back to previous commit...\"
-                sudo git reset --hard \$CURRENT_COMMIT
-                sudo -E docker buildx bake
-                sudo docker-compose up -d
-                exit 1
-              fi
-              echo \"⏳ Attempt \$i/30 - waiting for service...\"
-              sleep 2
-            done
-            
-            echo \"🎉 Deployment completed successfully!\"
-            echo \"📊 Service status:\"
-            sudo docker-compose ps
-            EOF
-            chmod +x deploy.sh
-            ./deploy.sh
-          "]' \
+          --parameters 'commands=[
+            "set -e",
+            "echo \"🚀 Starting deployment on $(date)\"", 
+            "cd /opt/dive-inspector",
+            "CURRENT_COMMIT=$(git rev-parse HEAD)",
+            "echo \"📝 Current commit: $CURRENT_COMMIT\"",
+            "git fetch origin",
+            "git reset --hard origin/main", 
+            "NEW_COMMIT=$(git rev-parse HEAD)",
+            "echo \"📝 New commit: $NEW_COMMIT\"",
+            "if [ \"$CURRENT_COMMIT\" = \"$NEW_COMMIT\" ]; then echo \"ℹ️ No changes detected\"; exit 0; fi",
+            "echo \"🔑 Logging into JFrog...\"",
+            "echo ${{ secrets.JF_ACCESS_TOKEN }} | docker login aurablacklight.jfrog.io -u ${{ github.actor }} --password-stdin",
+            "echo \"📝 Updating image tags...\"",
+            "sed -i \"s|dive-inspector-backend:latest|${{ needs.ci.outputs.backend-image }}|g\" docker-compose.yml",
+            "sed -i \"s|dive-inspector-frontend:latest|${{ needs.ci.outputs.frontend-image }}|g\" docker-compose.yml",
+            "echo \"🏥 Health check...\"",
+            "curl -f http://localhost:3000/api/health || echo \"⚠️ Service unhealthy\"",
+            "echo \"📦 Pulling images...\"", 
+            "docker compose pull",
+            "echo \"🔄 Restarting...\"",
+            "docker compose up -d",
+            "sleep 10",
+            "echo \"🏥 Post-deployment check...\"",
+            "for i in {1..30}; do if curl -f http://localhost:3000/api/health >/dev/null 2>&1; then echo \"✅ Healthy!\"; break; fi; sleep 2; done",
+            "echo \"🎉 Deployment complete!\"",
+            "docker compose ps"
+          ]' \
           --output text \
-          --query "Command.CommandId" > command_id.txt
-          
-        COMMAND_ID=$(cat command_id.txt)
-        echo "📝 Command ID: $COMMAND_ID"
+          --query "Command.CommandId")
+        
+        echo "✅ Deployment command sent: $COMMAND_ID"
         
         # Wait for command completion
         echo "⏳ Waiting for deployment to complete..."
@@ -374,15 +227,9 @@ jobs:
           
     - name: 🏥 Final health check
       run: |
-        # Get EC2 public IP for health check
-        PUBLIC_IP=$(aws ec2 describe-instances \
-          --instance-ids "${{ steps.instance.outputs.instance-id }}" \
-          --query "Reservations[0].Instances[0].PublicIpAddress" \
-          --output text)
-          
         echo "🔍 Final health check against public endpoint..."
         
-        # Note: This will hit Cloudflare, so it tests the full stack
+        # Check production endpoint through Cloudflare
         if curl -f -k "https://dive.docker-senpai.dev/api/health" > /dev/null 2>&1; then
           echo "✅ Production health check passed!"
         else
@@ -398,5 +245,5 @@ jobs:
         echo "| 🧪 Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
         echo "| 🚀 Deployment | ✅ Success |" >> $GITHUB_STEP_SUMMARY
         echo "| 🏥 Health Check | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-        echo "| ⏱️ Build Method | Docker Bake (Optimized) |" >> $GITHUB_STEP_SUMMARY
+        echo "| 📦 Registry | JFrog Artifactory |" >> $GITHUB_STEP_SUMMARY
         echo "| 🌐 Live URL | https://dive.docker-senpai.dev |" >> $GITHUB_STEP_SUMMARY
