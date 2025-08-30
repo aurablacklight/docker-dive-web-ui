@@ -1,30 +1,8 @@
 name: 🚀 CI/CD Pipeline
 
 on:
-  pu    - name: 🛠️ Setup JFrog CLI
-      uses: jfrog/setup-jfrog-cli@v4
-      env:
-        JF_URL: ${{ vars.JF_URL }}
-        JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
-        
-    - name: 🔍 Test JFrog Authentication
-      run: |
-        echo "🔑 Testing JFrog authentication..."
-        jf rt ping
-        echo "🐳 Configuring Docker authentication..."
-        jf rt c export | grep url
-        echo "✅ JFrog authentication successful!"
-        
-    - name: 🐳 Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      with:
-        driver-opts: |
-          image=moby/buildkit:buildx-stable-1
-          
-    - name: 🔐 Login to JFrog Docker Registry
-      run: |
-        echo "🔑 Logging into JFrog Docker registry..."
-        echo "${{ secrets.JF_ACCESS_TOKEN }}" | docker login aurablacklight.jfrog.io -u ${{ secrets.JF_USER_EMAIL }} --password-stdin
+  push:
+    branches: [ main ]
 
 env:
   AWS_REGION: us-east-1
@@ -62,20 +40,25 @@ jobs:
         JF_URL: ${{ vars.JF_URL }}
         JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
         
-    - name: � Test JFrog Authentication
+    - name: 🔍 Test JFrog Authentication
       run: |
         echo "🔑 Testing JFrog authentication..."
         jf rt ping
-        echo "🐳 Testing Docker registry access..."
-        jf docker login
+        echo "🐳 Configuring Docker authentication..."
+        jf rt c export | grep url
         echo "✅ JFrog authentication successful!"
         
-    - name: �🐳 Set up Docker Buildx
+    - name: 🐳 Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
       with:
         driver-opts: |
           image=moby/buildkit:buildx-stable-1
           
+    - name: 🔐 Login to JFrog Docker Registry
+      run: |
+        echo "🔑 Logging into JFrog Docker registry..."
+        echo "${{ secrets.JF_ACCESS_TOKEN }}" | docker login aurablacklight.jfrog.io -u ${{ secrets.JF_USER_EMAIL }} --password-stdin
+
     - name: 📝 Extract metadata
       id: meta
       run: |
