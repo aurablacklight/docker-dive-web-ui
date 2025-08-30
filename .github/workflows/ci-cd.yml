@@ -1,8 +1,30 @@
 name: 🚀 CI/CD Pipeline
 
 on:
-  push:
-    branches: [ main ]
+  pu    - name: 🛠️ Setup JFrog CLI
+      uses: jfrog/setup-jfrog-cli@v4
+      env:
+        JF_URL: ${{ vars.JF_URL }}
+        JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
+        
+    - name: 🔍 Test JFrog Authentication
+      run: |
+        echo "🔑 Testing JFrog authentication..."
+        jf rt ping
+        echo "🐳 Configuring Docker authentication..."
+        jf rt c export | grep url
+        echo "✅ JFrog authentication successful!"
+        
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        driver-opts: |
+          image=moby/buildkit:buildx-stable-1
+          
+    - name: 🔐 Login to JFrog Docker Registry
+      run: |
+        echo "🔑 Logging into JFrog Docker registry..."
+        echo "${{ secrets.JF_ACCESS_TOKEN }}" | docker login aurablacklight.jfrog.io -u ${{ secrets.JF_USER_EMAIL }} --password-stdin
 
 env:
   AWS_REGION: us-east-1
@@ -66,17 +88,14 @@ jobs:
       run: |
         cd backend
         
-        # Login to JFrog first for cache access
-        jf docker login
-        
-        # Build with cache (gracefully handle cache miss)
-        jf docker buildx build \
+        # Build with simplified cache approach
+        docker buildx build \
           --platform linux/amd64 \
           --cache-from type=registry,ref=aurablacklight.jfrog.io/dive-docker/dive-inspector-backend:cache \
           --cache-to type=registry,ref=aurablacklight.jfrog.io/dive-docker/dive-inspector-backend:cache,mode=max \
           --tag $BACKEND_IMAGE \
           --push . || \
-        jf docker buildx build \
+        docker buildx build \
           --platform linux/amd64 \
           --tag $BACKEND_IMAGE \
           --push .
@@ -87,22 +106,19 @@ jobs:
       run: |
         cd frontend
         
-        # Login to JFrog first for cache access
-        jf docker login
-        
-        # Build with cache (gracefully handle cache miss)
-        jf docker buildx build \
+        # Build with simplified cache approach
+        docker buildx build \
           --platform linux/amd64 \
           --cache-from type=registry,ref=aurablacklight.jfrog.io/dive-docker/dive-inspector-frontend:cache \
           --cache-to type=registry,ref=aurablacklight.jfrog.io/dive-docker/dive-inspector-frontend:cache,mode=max \
           --tag $FRONTEND_IMAGE \
-          --push \
-          --file Dockerfile.prod . || \
-        jf docker buildx build \
+          --file Dockerfile.prod \
+          --push . || \
+        docker buildx build \
           --platform linux/amd64 \
           --tag $FRONTEND_IMAGE \
-          --push \
-          --file Dockerfile.prod .
+          --file Dockerfile.prod \
+          --push .
         
     - name: 🧪 Run backend tests
       run: |
@@ -176,7 +192,7 @@ jobs:
         
         # Expand variables before sending to SSM
         JF_TOKEN="${{ secrets.JF_ACCESS_TOKEN }}"
-        GITHUB_USER="${{ github.actor }}"
+        GITHUB_USER="${{ secrets.JF_USER_EMAIL }}"
         BACKEND_IMAGE="${{ needs.ci.outputs.backend-image }}"
         FRONTEND_IMAGE="${{ needs.ci.outputs.frontend-image }}"
         
