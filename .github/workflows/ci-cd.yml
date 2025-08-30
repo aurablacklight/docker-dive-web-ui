@@ -1,19 +1,8 @@
 name: 🚀 CI/CD Pipeline
 
 on:
-  push    - name: 🛠️ Setup JFrog CLI
-      uses: jfrog/setup-jfrog-cli@v4
-      env:
-        JF_URL: ${{ vars.JF_URL }}
-        JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
-        
-    - name: 🐳 Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      with:
-        driver-opts: |
-          image=moby/buildkit:buildx-stable-1
-          
-    - name: 📝 Extract metadatabranches: [ main ]
+  push:
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
@@ -47,12 +36,18 @@ jobs:
           echo "should-deploy=false" >> $GITHUB_OUTPUT
         fi
         
-    - name: � Setup JFrog CLI
+    - name: 🛠️ Setup JFrog CLI
       uses: jfrog/setup-jfrog-cli@v4
       env:
         JF_URL: ${{ vars.JF_URL }}
         JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
         
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        driver-opts: |
+          image=moby/buildkit:buildx-stable-1
+          
     - name: 📝 Extract metadata
       id: meta
       run: |
