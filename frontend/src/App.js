@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { inspectImage, searchImages } from './services/api';
-import tracker from './utils/openreplay';
 import './styles/simple.css';
 
 function App() {
@@ -13,26 +12,6 @@ function App() {
   const [images, setImages] = useState([]);
   const [expandedLayers, setExpandedLayers] = useState(new Set()); // Track expanded layers
   const [allLayersExpanded, setAllLayersExpanded] = useState(false);
-
-  // Initialize OpenReplay tracker
-  useEffect(() => {
-    // Only start tracker if project key is configured
-    if (process.env.REACT_APP_OPENREPLAY_PROJECT_KEY) {
-      tracker.start().catch(console.error);
-    } else if (process.env.NODE_ENV === 'development') {
-      console.warn('OpenReplay project key not configured. Set REACT_APP_OPENREPLAY_PROJECT_KEY environment variable.');
-    }
-
-    // Set user information (optional)
-    tracker.setUserID('docker-dive-user');
-    tracker.setMetadata('app', 'docker-dive-inspector');
-    tracker.setMetadata('version', '1.0.0');
-
-    return () => {
-      // Cleanup on component unmount
-      tracker.stop();
-    };
-  }, []);
 
   // Popular images to show by default
   const popularImages = [
@@ -50,32 +29,11 @@ function App() {
     if (!searchQuery.trim()) return;
     
     try {
-      // Track search event
-      tracker.event('image_search_started', { 
-        query: searchQuery.trim(),
-        timestamp: new Date().toISOString() 
-      });
-
       setLoading(true);
       setError(null);
       const results = await searchImages(searchQuery);
       setImages(results);
-
-      // Track successful search
-      tracker.event('image_search_completed', { 
-        query: searchQuery.trim(),
-        resultCount: results.length,
-        success: true
-      });
-
     } catch (err) {
-      // Track search error
-      tracker.event('image_search_failed', { 
-        query: searchQuery.trim(),
-        error: err.message,
-        timestamp: new Date().toISOString()
-      });
-
       setError(`Search failed: ${err.message}`);
     } finally {
       setLoading(false);
@@ -84,12 +42,6 @@ function App() {
 
   const handleInspect = async (imageName) => {
     try {
-      // Track image inspection event
-      tracker.event('image_inspect_started', { 
-        imageName, 
-        timestamp: new Date().toISOString() 
-      });
-
       setLoading(true);
       setError(null);
       setCurrentView('inspect');
@@ -102,23 +54,7 @@ function App() {
       console.log('Available keys:', Object.keys(result));
       setInspectionData(result);
 
-      // Track successful inspection
-      tracker.event('image_inspect_completed', { 
-        imageName,
-        success: true,
-        analysisType: result.analysis?.is_cat_fallback ? 'cat' : 'dive',
-        layerCount: result.analysis?.layers?.length || 0,
-        imageSize: result.analysis?.analysis?.totalSize || 0
-      });
-
     } catch (err) {
-      // Track inspection error
-      tracker.event('image_inspect_failed', { 
-        imageName,
-        error: err.message,
-        timestamp: new Date().toISOString()
-      });
-
       setError(`Inspection failed: ${err.message}`);
       console.error('Inspection error:', err);
     } finally {
