@@ -37,7 +37,7 @@ router.post('/pull',
       .trim()
       .isLength({ min: 1, max: 255 })
       .withMessage('Image name must be between 1 and 255 characters')
-      .matches(/^[a-zA-Z0-9][a-zA-Z0-9._-]*[a-zA-Z0-9]*(:[a-zA-Z0-9._-]+)?$/)
+      .matches(/^[a-zA-Z0-9][a-zA-Z0-9._/-]*[a-zA-Z0-9]*(:[a-zA-Z0-9._-]+)?$/)
       .withMessage('Invalid image name format')
   ],
   async (req, res) => {
