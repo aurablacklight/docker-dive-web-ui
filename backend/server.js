@@ -156,8 +156,13 @@ io.on('connection', (socket) => {
 app.set('io', io);
 app.set('inspectionSockets', inspectionSockets);
 
-// Health check endpoint
-app.get('/api/health', async (req, res) => {
+// API routes - mount without /api prefix since nginx strips it
+app.use('/search', searchRoutes);
+app.use('/inspect', inspectRoutes);
+app.use('/images', imagesRoutes);
+
+// Health check at root level too since nginx forwards /api/health as /health
+app.get('/health', async (req, res) => {
   try {
     // Check Docker availability with timeout
     let dockerAvailable = false;
@@ -203,7 +208,7 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// API routes
+// Keep the original /api routes too for backward compatibility
 app.use('/api/search', searchRoutes);
 app.use('/api/inspect', inspectRoutes);
 app.use('/api/images', imagesRoutes);
