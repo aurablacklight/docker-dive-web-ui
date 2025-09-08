@@ -42,6 +42,12 @@ function App() {
     }
   };
 
+  const handleClearSearch = () => {
+    setSearchQuery('');
+    setImages([]);
+    setError(null);
+  };
+
   const handleInspect = async (imageName) => {
     try {
       setLoading(true);
@@ -336,9 +342,19 @@ function App() {
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
           />
-          <button className="search-button" onClick={handleSearch} disabled={loading}>
-            {loading ? 'Searching...' : 'Search'}
-          </button>
+          <div className="search-buttons">
+            <button className="search-button" onClick={handleSearch} disabled={loading}>
+              {loading ? 'Searching...' : 'Search'}
+            </button>
+            <button 
+              className="clear-button" 
+              onClick={handleClearSearch} 
+              disabled={loading || (!searchQuery && images.length === 0)}
+              title="Clear search and results"
+            >
+              Clear
+            </button>
+          </div>
         </div>
         
         {error && (

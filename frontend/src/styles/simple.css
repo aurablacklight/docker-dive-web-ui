@@ -87,6 +87,7 @@ body {
   font-size: 1rem;
   outline: none;
   transition: all 0.2s ease;
+  margin-bottom: 1rem;
 }
 
 .search-input::placeholder {
@@ -98,6 +99,12 @@ body {
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
 }
 
+.search-buttons {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
 .search-button {
   background: linear-gradient(135deg, #6366f1 0%, #d946ef 100%);
   color: white;
@@ -107,12 +114,44 @@ body {
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
-  margin-left: 1rem;
+  flex: 1;
+  max-width: 150px;
 }
 
-.search-button:hover {
+.search-button:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.search-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.clear-button {
+  background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+  color: white;
+  padding: 1rem 2rem;
+  border: none;
+  border-radius: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex: 1;
+  max-width: 150px;
+}
+
+.clear-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  background: linear-gradient(135deg, #9ca3af 0%, #6b7280 100%);
+}
+
+.clear-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .inspect-button {
@@ -520,10 +559,7 @@ body {
   font-size: 2.5rem;
   font-weight: bold;
   margin-bottom: 0.5rem;
-  background: linear-gradient(135deg, #6366f1 0%, #d946ef 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: white;
 }
 
 .app-subtitle {
@@ -630,5 +666,15 @@ body {
   
   .cleanup-message {
     max-width: 200px;
+  }
+  
+  .search-buttons {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .search-button,
+  .clear-button {
+    max-width: none;
   }
 }
