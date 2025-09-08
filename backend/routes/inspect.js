@@ -10,34 +10,43 @@ const router = express.Router();
 const inspectionProgress = new Map();
 
 /**
- * POST /api/inspect/:imageName
- * Analyze a Docker image using dive
+ * POST /api/inspect/:imageName*
+ * Analyze a Docker image using dive (supports images with slashes in names)
  */
-router.post('/:imageName',
-  [
-    param('imageName')
-      .trim()
-      .isLength({ min: 1, max: 255 })
-      .withMessage('Image name must be between 1 and 255 characters')
-      .matches(/^[a-zA-Z0-9][a-zA-Z0-9._/-]*[a-zA-Z0-9]*(:[a-zA-Z0-9._-]+)?$/)
-      .withMessage('Invalid image name format')
-  ],
+router.post('/:imageName*',
   async (req, res) => {
     try {
-      // Check for validation errors
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        const { imageName } = req.params;
-        const decodedImageName = decodeURIComponent(imageName);
-        
-        console.log(`Invalid image name "${decodedImageName}", showing cats instead! 🐱`);
+      // Reconstruct the full image name from params
+      let imageName = req.params.imageName;
+      if (req.params[0]) {
+        imageName += req.params[0]; // This captures any additional path segments
+      }
+      
+      if (!imageName || imageName.trim().length === 0) {
+        return res.status(400).json({
+          error: 'Image name is required',
+          path: req.path
+        });
+      }
+
+      if (imageName.length > 255) {
+        return res.status(400).json({
+          error: 'Image name too long (max 255 characters)',
+          imageName: imageName
+        });
+      }
+
+      // Basic validation for Docker image name format (allowing slashes for namespaces)
+      const dockerImageRegex = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*[a-zA-Z0-9]*(:[a-zA-Z0-9._-]+)?$/;
+      if (!dockerImageRegex.test(imageName)) {
+        console.log(`Invalid image name "${imageName}", showing cats instead! 🐱`);
         
         // Generate cat results for invalid image names
-        const catResults = await catUtils.generateCatResults(decodedImageName, 5);
+        const catResults = await catUtils.generateCatResults(imageName, 5);
         
         // Return cat inspection results instead of validation error
         return res.status(200).json({
-          imageName: decodedImageName,
+          imageName: imageName,
           analysis: {
             is_cat_fallback: true,
             message: 'Image name validation failed, but here are some cats to inspect! 🐱',
@@ -68,12 +77,11 @@ router.post('/:imageName',
             totalSize: catResults.results.length * 500000, // Approximate total size
             baseImage: 'scratch/cats:latest',
             is_cat_summary: true,
-            original_image_name: decodedImageName
+            original_image_name: imageName
           }
         });
       }
 
-      const { imageName } = req.params;
       const decodedImageName = decodeURIComponent(imageName);
       
       console.log(`Starting inspection for image: ${decodedImageName}`);
