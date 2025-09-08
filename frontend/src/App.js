@@ -74,7 +74,7 @@ function App() {
   };
 
   const handleCleanup = async () => {
-    if (!window.confirm('⚠️ This will DELETE ALL Docker images on the server!\n\nAre you sure you want to continue?')) {
+    if (!window.confirm('⚠️ This will DELETE analyzed Docker images (but keep service running)!\n\nAre you sure you want to continue?')) {
       return;
     }
 
@@ -313,9 +313,9 @@ function App() {
               className={`cleanup-button ${cleanupLoading ? 'loading' : ''}`}
               onClick={handleCleanup}
               disabled={cleanupLoading}
-              title="Delete all Docker images from server to free up disk space"
+              title="Delete analyzed Docker images (keeps service running)"
             >
-              {cleanupLoading ? '🧹 Cleaning...' : '🗑️ Delete All Images'}
+              {cleanupLoading ? '🧹 Cleaning...' : '🗑️ Clean Up Images'}
             </button>
             {cleanupMessage && (
               <div className={`cleanup-message ${cleanupMessage.includes('❌') ? 'error' : 'success'}`}>
