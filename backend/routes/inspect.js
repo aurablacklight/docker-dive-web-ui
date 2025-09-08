@@ -1,8 +1,8 @@
 const express = require('express');
 const { param, validationResult } = require('express-validator');
-const diveUtils = require('../utils/dive');
-const dockerUtils = require('../utils/docker');
-const catUtils = require('../utils/cat');
+const diveUtils = require('../utils/dive.js');
+const dockerUtils = require('../utils/docker.js');
+const catUtils = require('../utils/cat.js');
 
 const router = express.Router();
 
@@ -10,8 +10,164 @@ const router = express.Router();
 const inspectionProgress = new Map();
 
 /**
+ * GET /api/inspect/health
+ * Check if inspection dependencies are available
+ */
+router.get('/health', async (req, res) => {
+  try {
+    const dockerAvailable = await dockerUtils.isDockerAvailable();
+    const diveAvailable = await diveUtils.isDiveAvailable();
+    
+    const dockerVersion = dockerAvailable ? await dockerUtils.getDockerVersion() : null;
+    
+    res.json({
+      status: dockerAvailable && diveAvailable ? 'healthy' : 'unhealthy',
+      dependencies: {
+        docker: {
+          available: dockerAvailable,
+          version: dockerVersion?.Client?.Version || null
+        },
+        dive: {
+          available: diveAvailable
+        }
+      },
+      activeInspections: inspectionProgress.size
+    });
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(500).json({
+      error: 'Health check failed',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/inspect/active
+ * Get list of active inspections
+ */
+router.get('/active', async (req, res) => {
+  try {
+    const activeInspections = Array.from(inspectionProgress.entries()).map(([imageName, progress]) => ({
+      imageName,
+      ...progress
+    }));
+
+    res.json({
+      count: activeInspections.length,
+      inspections: activeInspections
+    });
+  } catch (error) {
+    console.error('Active inspections error:', error);
+    res.status(500).json({
+      error: 'Failed to get active inspections',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/inspect/:imageName/status (and namespaced variants)
+ * Get the status of an ongoing inspection (supports namespaced images)
+ */
+router.get(/^\/(.+?)\/status\/?$/, async (req, res) => {
+  try {
+    const imageName = req.params[0]; // Get the captured group from regex
+    
+    if (!imageName || imageName.trim().length === 0) {
+      return res.status(400).json({
+        error: 'Image name is required for status check',
+        path: req.path
+      });
+    }
+
+    const decodedImageName = decodeURIComponent(imageName);
+    const progress = inspectionProgress.get(decodedImageName);
+    
+    if (!progress) {
+      return res.status(404).json({
+        error: 'No inspection in progress for this image',
+        imageName: decodedImageName
+      });
+    }
+
+    res.json({
+      imageName: decodedImageName,
+      ...progress
+    });
+
+  } catch (error) {
+    console.error(`Status check error for ${req.path}:`, error);
+    res.status(500).json({
+      error: 'Failed to get inspection status',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * DELETE /api/inspect/:imageName*
+ * Cancel an ongoing inspection (supports namespaced images)
+ */
+router.delete('/:imageName*',
+  async (req, res) => {
+    try {
+      // Reconstruct the full image name from params
+      let imageName = req.params.imageName;
+      if (req.params[0]) {
+        imageName += req.params[0];
+      }
+
+      if (!imageName || imageName.trim().length === 0) {
+        return res.status(400).json({
+          error: 'Image name is required',
+          path: req.path
+        });
+      }
+
+      const decodedImageName = decodeURIComponent(imageName);
+      const progress = inspectionProgress.get(decodedImageName);
+      
+      if (!progress) {
+        return res.status(404).json({
+          error: 'No inspection in progress for this image',
+          imageName: decodedImageName
+        });
+      }
+
+      // Remove from progress tracking
+      inspectionProgress.delete(decodedImageName);
+      
+      // Notify via WebSocket
+      const inspectionSockets = req.app.get('inspectionSockets');
+      const socket = inspectionSockets.get(decodedImageName);
+      if (socket) {
+        socket.emit('inspection-cancelled', {
+          imageName: decodedImageName,
+          message: 'Inspection cancelled by user'
+        });
+      }
+
+      res.json({
+        success: true,
+        imageName: decodedImageName,
+        message: 'Inspection cancelled'
+      });
+
+    } catch (error) {
+      console.error(`Cancel inspection error for ${req.path}:`, error);
+      res.status(500).json({
+        error: 'Failed to cancel inspection',
+        message: error.message
+      });
+    }
+  }
+);
+
+/**
  * POST /api/inspect/:imageName*
  * Analyze a Docker image using dive (supports images with slashes in names)
+ * IMPORTANT: This wildcard route must be LAST to avoid conflicts
  */
 router.post('/:imageName*',
   async (req, res) => {
@@ -306,175 +462,5 @@ router.post('/:imageName*',
     }
   }
 );
-
-/**
- * GET /api/inspect/:imageName/status
- * Get the status of an ongoing inspection
- */
-router.get('/:imageName/status', 
-  [
-    param('imageName')
-      .trim()
-      .isLength({ min: 1, max: 255 })
-      .withMessage('Image name must be between 1 and 255 characters')
-  ],
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          error: 'Invalid image name',
-          details: errors.array()
-        });
-      }
-
-      const { imageName } = req.params;
-      const decodedImageName = decodeURIComponent(imageName);
-      
-      const progress = inspectionProgress.get(decodedImageName);
-      
-      if (!progress) {
-        return res.status(404).json({
-          error: 'No inspection in progress for this image',
-          imageName: decodedImageName
-        });
-      }
-
-      res.json({
-        imageName: decodedImageName,
-        ...progress
-      });
-
-    } catch (error) {
-      console.error(`Status check error for ${req.params.imageName}:`, error);
-      res.status(500).json({
-        error: 'Failed to get inspection status',
-        message: error.message
-      });
-    }
-  }
-);
-
-/**
- * GET /api/inspect/health
- * Check if inspection dependencies are available
- */
-router.get('/health', async (req, res) => {
-  try {
-    const dockerAvailable = await dockerUtils.isDockerAvailable();
-    const diveAvailable = await diveUtils.isDiveAvailable();
-    
-    const dockerVersion = dockerAvailable ? await dockerUtils.getDockerVersion() : null;
-    
-    res.json({
-      status: dockerAvailable && diveAvailable ? 'healthy' : 'unhealthy',
-      dependencies: {
-        docker: {
-          available: dockerAvailable,
-          version: dockerVersion?.Client?.Version || null
-        },
-        dive: {
-          available: diveAvailable
-        }
-      },
-      activeInspections: inspectionProgress.size
-    });
-  } catch (error) {
-    console.error('Health check error:', error);
-    res.status(500).json({
-      error: 'Health check failed',
-      message: error.message
-    });
-  }
-});
-
-/**
- * DELETE /api/inspect/:imageName
- * Cancel an ongoing inspection
- */
-router.delete('/:imageName',
-  [
-    param('imageName')
-      .trim()
-      .isLength({ min: 1, max: 255 })
-      .withMessage('Image name must be between 1 and 255 characters')
-  ],
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        console.log('Delete validation error, generating cat fallback...');
-        const catResult = await catUtils.generateCatInspectionResult(
-          'invalid-image', 
-          'Validation Error - Invalid Parameters',
-          { validationErrors: errors.array() }
-        );
-        return res.status(200).json(catResult);
-      }
-
-      const { imageName } = req.params;
-      const decodedImageName = decodeURIComponent(imageName);
-      
-      const progress = inspectionProgress.get(decodedImageName);
-      
-      if (!progress) {
-        return res.status(404).json({
-          error: 'No inspection in progress for this image',
-          imageName: decodedImageName
-        });
-      }
-
-      // Remove from progress tracking
-      inspectionProgress.delete(decodedImageName);
-      
-      // Notify via WebSocket
-      const inspectionSockets = req.app.get('inspectionSockets');
-      const socket = inspectionSockets.get(decodedImageName);
-      if (socket) {
-        socket.emit('inspection-cancelled', {
-          imageName: decodedImageName,
-          message: 'Inspection cancelled by user'
-        });
-      }
-
-      res.json({
-        success: true,
-        imageName: decodedImageName,
-        message: 'Inspection cancelled'
-      });
-
-    } catch (error) {
-      console.error(`Cancel inspection error for ${req.params.imageName}:`, error);
-      res.status(500).json({
-        error: 'Failed to cancel inspection',
-        message: error.message
-      });
-    }
-  }
-);
-
-/**
- * GET /api/inspect/active
- * Get list of active inspections
- */
-router.get('/active', async (req, res) => {
-  try {
-    const activeInspections = Array.from(inspectionProgress.entries()).map(([imageName, progress]) => ({
-      imageName,
-      ...progress
-    }));
-
-    res.json({
-      count: activeInspections.length,
-      inspections: activeInspections
-    });
-  } catch (error) {
-    console.error('Active inspections error:', error);
-    res.status(500).json({
-      error: 'Failed to get active inspections',
-      message: error.message
-    });
-  }
-});
 
 module.exports = router;
