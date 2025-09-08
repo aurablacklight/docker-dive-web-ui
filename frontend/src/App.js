@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { inspectImage, searchImages } from './services/api';
+import { inspectImage, searchImages, cleanupAllImages } from './services/api';
 import './styles/simple.css';
 
 function App() {
@@ -12,6 +12,8 @@ function App() {
   const [images, setImages] = useState([]);
   const [expandedLayers, setExpandedLayers] = useState(new Set()); // Track expanded layers
   const [allLayersExpanded, setAllLayersExpanded] = useState(false);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [cleanupMessage, setCleanupMessage] = useState('');
 
   // Popular images to show by default
   const popularImages = [
@@ -69,6 +71,36 @@ function App() {
     setError(null);
     setExpandedLayers(new Set()); // Reset expanded layers
     setAllLayersExpanded(false);
+  };
+
+  const handleCleanup = async () => {
+    if (!window.confirm('⚠️ This will DELETE ALL Docker images on the server!\n\nAre you sure you want to continue?')) {
+      return;
+    }
+
+    try {
+      setCleanupLoading(true);
+      setCleanupMessage('');
+      console.log('🧹 Starting cleanup of all Docker images...');
+      
+      const result = await cleanupAllImages();
+      
+      setCleanupMessage(`✅ Success! Deleted ${result.details?.deletedCount || 0} images`);
+      console.log('Cleanup completed:', result);
+      
+      // Auto-clear message after 5 seconds
+      setTimeout(() => setCleanupMessage(''), 5000);
+      
+    } catch (err) {
+      const errorMsg = `❌ Cleanup failed: ${err.message}`;
+      setCleanupMessage(errorMsg);
+      console.error('Cleanup error:', err);
+      
+      // Auto-clear error after 10 seconds
+      setTimeout(() => setCleanupMessage(''), 10000);
+    } finally {
+      setCleanupLoading(false);
+    }
   };
 
   // Layer expansion handlers
@@ -271,8 +303,27 @@ function App() {
   return (
     <div className="app-container">
       <header className="app-header">
-        <h1 className="app-title">🐋 Dive Docker Image Inspector</h1>
-        <p className="app-subtitle">Analyze Docker images layer by layer</p>
+        <div className="header-content">
+          <div className="header-title">
+            <h1 className="app-title">🐋 Dive Docker Image Inspector</h1>
+            <p className="app-subtitle">Analyze Docker images layer by layer</p>
+          </div>
+          <div className="header-actions">
+            <button 
+              className={`cleanup-button ${cleanupLoading ? 'loading' : ''}`}
+              onClick={handleCleanup}
+              disabled={cleanupLoading}
+              title="Delete all Docker images from server to free up disk space"
+            >
+              {cleanupLoading ? '🧹 Cleaning...' : '🗑️ Delete All Images'}
+            </button>
+            {cleanupMessage && (
+              <div className={`cleanup-message ${cleanupMessage.includes('❌') ? 'error' : 'success'}`}>
+                {cleanupMessage}
+              </div>
+            )}
+          </div>
+        </div>
       </header>
       
       <main className="main-content">

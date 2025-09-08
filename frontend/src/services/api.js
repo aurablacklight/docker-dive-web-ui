@@ -162,6 +162,22 @@ export const healthCheck = async () => {
   }
 };
 
+/**
+ * Delete all Docker images (nuclear cleanup!)
+ * @returns {Promise<Object>} Cleanup result
+ */
+export const cleanupAllImages = async () => {
+  try {
+    console.log('🧹 Requesting cleanup of all Docker images...');
+    const response = await api.post('/images/cleanup');
+    console.log('✅ Cleanup completed:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('❌ Image cleanup failed:', error);
+    throw error;
+  }
+};
+
 // WebSocket connection for real-time updates
 export class InspectionWebSocket {
   constructor(imageName, onUpdate, onError, onComplete) {

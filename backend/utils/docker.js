@@ -130,6 +130,50 @@ class DockerUtils {
   }
 
   /**
+   * Remove all Docker images (nuclear option!)
+   * @returns {Promise<Object>} Cleanup result
+   */
+  async cleanupAllImages() {
+    try {
+      console.log('🧹 Performing nuclear cleanup - removing ALL Docker images');
+      
+      // First try to remove all images with force
+      const { stdout, stderr } = await execAsync(
+        `${this.dockerCommand} rmi -f $(${this.dockerCommand} images -q) 2>/dev/null || echo "No images to remove"`
+      );
+
+      // Also run docker system prune to clean up any remaining artifacts
+      const { stdout: pruneOut } = await execAsync(
+        `${this.dockerCommand} system prune -af 2>/dev/null || echo "System prune complete"`
+      );
+
+      return {
+        success: true,
+        message: 'All Docker images deleted successfully',
+        output: stdout,
+        error: stderr,
+        pruneOutput: pruneOut
+      };
+    } catch (error) {
+      console.error('Failed to cleanup all images:', error);
+      
+      // If the aggressive cleanup fails, try individual cleanup
+      try {
+        console.log('Fallback: trying docker system prune...');
+        const { stdout } = await execAsync(`${this.dockerCommand} system prune -af`);
+        return {
+          success: true,
+          message: 'Partial cleanup completed (some images may remain)',
+          output: stdout,
+          fallback: true
+        };
+      } catch (fallbackError) {
+        throw new Error(`Failed to cleanup images: ${error.message}`);
+      }
+    }
+  }
+
+  /**
    * Remove a Docker image
    * @param {string} imageName - Name or ID of the image to remove
    * @param {boolean} force - Whether to force removal

@@ -291,11 +291,11 @@ router.get('/docker-info', async (req, res) => {
 
 /**
  * POST /api/images/cleanup
- * Clean up unused Docker images
+ * Clean up all Docker images (nuclear option!)
  */
 router.post('/cleanup', async (req, res) => {
   try {
-    console.log('Starting Docker image cleanup');
+    console.log('🧹 Starting Docker image cleanup - DELETING ALL IMAGES');
     
     // Check if Docker is available
     const dockerAvailable = await dockerUtils.isDockerAvailable();
@@ -305,14 +305,32 @@ router.post('/cleanup', async (req, res) => {
       });
     }
 
-    // This would typically run `docker image prune` or similar
-    // For now, we'll just return a success message
-    // You can extend this to actually perform cleanup operations
+    // Get list of all images before cleanup
+    const imagesBefore = await dockerUtils.listImages();
+    console.log(`Found ${imagesBefore.length} images to delete`);
+
+    // Nuclear option: Remove ALL images with force
+    const cleanupResult = await dockerUtils.cleanupAllImages();
+    
+    // Get list of remaining images after cleanup
+    const imagesAfter = await dockerUtils.listImages();
+    const deletedCount = imagesBefore.length - imagesAfter.length;
+    
+    console.log(`🗑️ Cleanup complete! Deleted ${deletedCount} images`);
     
     res.json({
       success: true,
-      message: 'Cleanup operation would be performed here',
-      note: 'This endpoint is a placeholder for future cleanup functionality',
+      message: `Successfully deleted ${deletedCount} Docker images`,
+      details: {
+        imagesBefore: imagesBefore.length,
+        imagesAfter: imagesAfter.length,
+        deletedCount: deletedCount,
+        remainingImages: imagesAfter.map(img => ({
+          repository: img.repository,
+          tag: img.tag,
+          size: img.size
+        }))
+      },
       timestamp: new Date().toISOString()
     });
 
