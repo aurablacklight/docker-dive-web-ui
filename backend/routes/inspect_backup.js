@@ -67,7 +67,8 @@ router.get('/active', async (req, res) => {
 });
 
 /**
- * GET /api/inspect/:imageName*/status
+ * GET /api/inspect/:imageName*
+ * /status
  * Get the status of an ongoing inspection (supports namespaced images)
  */
 router.get('/:imageName*/status',
@@ -321,12 +322,12 @@ router.post('/:imageName*',
         message: 'Starting dive analysis...'
       });
 
-      const analysis = await diveUtils.executeDive(decodedImageName, (diveUpdate) => {
-        progressCallback({
-          status: 'analyzing',
-          progress: Math.min(60 + (diveUpdate.progress || 0) * 0.35, 95), // 60-95%
-          message: diveUpdate.message || 'Analyzing image layers...'
-        });
+      const analysis = await diveUtils.executeDive(decodedImageName);
+
+      progressCallback({
+        status: 'analyzing',
+        progress: 95,
+        message: 'Processing analysis results...'
       });
 
       // Step 3: Complete analysis
