@@ -1,4 +1,4 @@
-import React from 'react';
+import PropTypes from 'prop-types';
 import { Package, Settings, FileText, Tag, Hash, Clock } from 'lucide-react';
 
 const LayerItem = ({ layer, index, isSelected, onClick }) => {
@@ -41,6 +41,14 @@ const LayerItem = ({ layer, index, isSelected, onClick }) => {
   return (
     <div
       onClick={() => onClick(layer, index)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick(layer, index);
+        }
+      }}
+      role="button"
+      tabIndex={0}
       className={`layer-item ${
         isSelected ? 'ring-2 ring-white ring-opacity-50 bg-opacity-20' : ''
       } transition-all duration-200`}
@@ -113,6 +121,23 @@ const LayerItem = ({ layer, index, isSelected, onClick }) => {
       )}
     </div>
   );
+};
+
+LayerItem.propTypes = {
+  layer: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    command: PropTypes.string,
+    size: PropTypes.number,
+    efficiency: PropTypes.number,
+    created: PropTypes.string,
+    file_count: PropTypes.number,
+    wasted_size: PropTypes.number,
+    change_type: PropTypes.string,
+    size_percentage: PropTypes.number
+  }).isRequired,
+  index: PropTypes.number.isRequired,
+  isSelected: PropTypes.bool.isRequired,
+  onClick: PropTypes.func.isRequired
 };
 
 export default LayerItem;

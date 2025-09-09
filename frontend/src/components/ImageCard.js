@@ -1,4 +1,4 @@
-import React from 'react';
+import PropTypes from 'prop-types';
 import { Star, Download, Calendar, Package, ArrowRight } from 'lucide-react';
 
 const ImageCard = ({ image, onInspect }) => {
@@ -99,6 +99,20 @@ const ImageCard = ({ image, onInspect }) => {
       </div>
     </div>
   );
+};
+
+ImageCard.propTypes = {
+  image: PropTypes.shape({
+    name: PropTypes.string.isRequired,
+    namespace: PropTypes.string,
+    star_count: PropTypes.number,
+    short_description: PropTypes.string,
+    pull_count: PropTypes.number,
+    full_size: PropTypes.number,
+    last_updated: PropTypes.string,
+    is_official: PropTypes.bool
+  }).isRequired,
+  onInspect: PropTypes.func.isRequired
 };
 
 export default ImageCard;

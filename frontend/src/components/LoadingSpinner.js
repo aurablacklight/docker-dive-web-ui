@@ -1,4 +1,4 @@
-import React from 'react';
+import PropTypes from 'prop-types';
 import { Loader2 } from 'lucide-react';
 
 const LoadingSpinner = ({ 
@@ -19,7 +19,11 @@ const LoadingSpinner = ({
   };
 
   return (
-    <div className={`flex flex-col items-center justify-center ${containerClasses[size]}`}>
+    <div 
+      className={`flex flex-col items-center justify-center ${containerClasses[size]}`}
+      role="status"
+      aria-live="polite"
+    >
       <Loader2 className={`${sizeClasses[size]} animate-spin text-white`} />
       {showMessage && (
         <p className="text-white text-opacity-70 mt-3">
@@ -28,6 +32,12 @@ const LoadingSpinner = ({
       )}
     </div>
   );
+};
+
+LoadingSpinner.propTypes = {
+  size: PropTypes.oneOf(['small', 'medium', 'large']),
+  message: PropTypes.string,
+  showMessage: PropTypes.bool
 };
 
 export default LoadingSpinner;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { inspectImage, searchImages, cleanupAllImages } from './services/api';
 import TerminalView from './components/TerminalView';
 import './styles/simple.css';
@@ -234,7 +234,7 @@ function App() {
                     </h2>
                     <p style={{ color: '#aaa', marginBottom: '20px' }}>
                       Use this interactive terminal to explore the image with dive commands.
-                      Press 'q' to quit the dive session.
+                      Press &lsquo;q&rsquo; to quit the dive session.
                     </p>
                     <TerminalView 
                       image={currentImage} 
@@ -396,7 +396,19 @@ function App() {
           <h2>Popular Images</h2>
           <div className="image-grid">
             {popularImages.map((image) => (
-              <div key={image.name} className="image-card" onClick={() => handleInspect(image.name)}>
+              <div 
+                key={image.name} 
+                className="image-card" 
+                onClick={() => handleInspect(image.name)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleInspect(image.name);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+              >
                 <h3>{image.name}</h3>
                 <p>{image.description}</p>
                 <button className="inspect-button">Pull and Inspect</button>
@@ -410,7 +422,19 @@ function App() {
             <h2>Search Results</h2>
             <div className="image-grid">
               {images.map((image) => (
-                <div key={image.name} className="image-card" onClick={() => handleInspect(image.name)}>
+                <div 
+                  key={image.name} 
+                  className="image-card" 
+                  onClick={() => handleInspect(image.name)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleInspect(image.name);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
                   <h3>{image.name}</h3>
                   <p>{image.description}</p>
                   <button className="inspect-button">Pull and Inspect</button>

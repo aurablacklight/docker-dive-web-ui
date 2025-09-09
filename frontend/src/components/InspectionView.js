@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
+import PropTypes from 'prop-types';
 import LayerItem from './LayerItem';
 import { 
   BarChart3, 
@@ -283,6 +284,12 @@ const InspectionView = ({ image, layers, onBack }) => {
       </div>
     </div>
   );
+};
+
+InspectionView.propTypes = {
+  image: PropTypes.string.isRequired,
+  layers: PropTypes.arrayOf(PropTypes.object).isRequired,
+  onBack: PropTypes.func.isRequired
 };
 
 export default InspectionView;

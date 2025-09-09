@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import PropTypes from 'prop-types';
 import { Search, Loader2 } from 'lucide-react';
 
 const SearchBar = ({ onSearch, loading = false }) => {
@@ -69,6 +70,11 @@ const SearchBar = ({ onSearch, loading = false }) => {
       </div>
     </form>
   );
+};
+
+SearchBar.propTypes = {
+  onSearch: PropTypes.func.isRequired,
+  loading: PropTypes.bool
 };
 
 export default SearchBar;
