@@ -51,24 +51,45 @@ const TerminalView = ({ image, onExit }) => {
           term.focus();
           console.log('Terminal initialized and focused');
           
-          // Auto-resize when container dimensions change
+          // Auto-resize when container dimensions change (with debouncing)
           if (window.ResizeObserver) {
-            const resizeObserver = new ResizeObserver(() => {
-              if (mountedRef.current && fitRef.current) {
-                requestAnimationFrame(() => {
+            let resizeTimeout;
+            let lastWidth = 0;
+            let lastHeight = 0;
+            
+            const resizeObserver = new ResizeObserver((entries) => {
+              if (!mountedRef.current || !fitRef.current) return;
+              
+              const entry = entries[0];
+              const newWidth = entry.contentRect.width;
+              const newHeight = entry.contentRect.height;
+              
+              // Only resize if dimensions actually changed significantly
+              if (Math.abs(newWidth - lastWidth) < 10 && Math.abs(newHeight - lastHeight) < 10) {
+                return;
+              }
+              
+              lastWidth = newWidth;
+              lastHeight = newHeight;
+              
+              // Debounce resize calls
+              clearTimeout(resizeTimeout);
+              resizeTimeout = setTimeout(() => {
+                if (mountedRef.current && fitRef.current) {
                   try {
                     fitRef.current.fit();
-                    console.log('Terminal auto-resized');
+                    console.log(`Terminal auto-resized to ${newWidth}x${newHeight}`);
                   } catch (error) {
                     console.warn('Auto-resize failed:', error);
                   }
-                });
-              }
+                }
+              }, 100); // 100ms debounce
             });
             resizeObserver.observe(containerRef.current);
             
             // Store observer for cleanup
             containerRef.current._resizeObserver = resizeObserver;
+            containerRef.current._resizeTimeout = resizeTimeout;
           }
           
           // Additional focus debugging
@@ -190,10 +211,15 @@ const TerminalView = ({ image, onExit }) => {
       
       window.removeEventListener('resize', handleResize);
       
-      // Clean up ResizeObserver
+      // Clean up ResizeObserver and timeout
       if (containerRef.current && containerRef.current._resizeObserver) {
         containerRef.current._resizeObserver.disconnect();
         delete containerRef.current._resizeObserver;
+      }
+      
+      if (containerRef.current && containerRef.current._resizeTimeout) {
+        clearTimeout(containerRef.current._resizeTimeout);
+        delete containerRef.current._resizeTimeout;
       }
       
       if (socketRef.current) {
