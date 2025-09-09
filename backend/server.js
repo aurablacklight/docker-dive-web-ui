@@ -12,6 +12,22 @@ const fs = require('fs');
 const pty = require('node-pty');
 require('dotenv').config();
 
+// Track active PTY processes for cleanup
+const activePTYs = new Set();
+
+const killAllPTYs = () => {
+  for (const proc of activePTYs) {
+    if (proc && !proc.killed) {
+      try {
+        proc.kill();
+      } catch (_) {
+        // ignore errors during shutdown
+      }
+    }
+  }
+  activePTYs.clear();
+};
+
 // Import routes
 const searchRoutes = require('./routes/search');
 const inspectRoutes = require('./routes/inspect');
@@ -175,10 +191,13 @@ io.of('/ws/terminal').on('connection', (socket) => {
     env: process.env
   });
 
+  activePTYs.add(shell);
+
   const cleanup = () => {
     if (shell && !shell.killed) {
       shell.kill();
     }
+    activePTYs.delete(shell);
   };
 
   shell.onData((data) => socket.emit('data', data));
@@ -362,8 +381,11 @@ app.use('/api/*', (req, res) => {
 });
 
 // Graceful shutdown
+process.on('disconnect', killAllPTYs);
+
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully');
+  killAllPTYs();
   server.close(() => {
     console.log('Process terminated');
     process.exit(0);
@@ -372,6 +394,7 @@ process.on('SIGTERM', () => {
 
 process.on('SIGINT', () => {
   console.log('SIGINT received, shutting down gracefully');
+  killAllPTYs();
   server.close(() => {
     console.log('Process terminated');
     process.exit(0);
@@ -395,4 +418,4 @@ if (process.env.NODE_ENV !== 'test') {
   });
 }
 
-module.exports = { app, server, io };
+module.exports = { app, server, io, killAllPTYs, activePTYs };
