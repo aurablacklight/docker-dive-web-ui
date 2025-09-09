@@ -12,6 +12,7 @@ const TerminalView = ({ image, onExit }) => {
   const fitRef = useRef(null);
   const mountedRef = useRef(true);
   const initTimeoutRef = useRef(null);
+  const windowResizeTimeoutRef = useRef(null);
 
   // Reset mounted flag on mount
   useEffect(() => {
@@ -51,52 +52,8 @@ const TerminalView = ({ image, onExit }) => {
           term.focus();
           console.log('Terminal initialized and focused');
           
-          // Auto-resize when container dimensions change (with debouncing)
-          if (window.ResizeObserver) {
-            let resizeTimeout;
-            let lastWidth = 0;
-            let lastHeight = 0;
-            
-            const resizeObserver = new ResizeObserver((entries) => {
-              // Exit early if component is unmounting or refs are null
-              if (!mountedRef.current || !fitRef.current || !termRef.current || !containerRef.current) {
-                return;
-              }
-              
-              const entry = entries[0];
-              if (!entry || !entry.contentRect) return;
-              
-              const newWidth = entry.contentRect.width;
-              const newHeight = entry.contentRect.height;
-              
-              // Only resize if dimensions actually changed significantly
-              if (Math.abs(newWidth - lastWidth) < 10 && Math.abs(newHeight - lastHeight) < 10) {
-                return;
-              }
-              
-              lastWidth = newWidth;
-              lastHeight = newHeight;
-              
-              // Debounce resize calls
-              clearTimeout(resizeTimeout);
-              resizeTimeout = setTimeout(() => {
-                // Double check refs are still valid when timeout fires
-                if (mountedRef.current && fitRef.current && termRef.current && containerRef.current) {
-                  try {
-                    fitRef.current.fit();
-                    console.log(`Terminal auto-resized to ${newWidth}x${newHeight}`);
-                  } catch (error) {
-                    console.warn('Auto-resize failed:', error);
-                  }
-                }
-              }, 100); // 100ms debounce
-            });
-            resizeObserver.observe(containerRef.current);
-            
-            // Store observer for cleanup
-            containerRef.current._resizeObserver = resizeObserver;
-            containerRef.current._resizeTimeout = resizeTimeout;
-          }
+          // DISABLE ResizeObserver for now - causing infinite loops
+          // Will rely on window resize events and manual resize only
           
           // Additional focus debugging
           setTimeout(() => {
@@ -185,6 +142,7 @@ const TerminalView = ({ image, onExit }) => {
               try {
                 fitRef.current.fit();
                 socket.emit('resize', { cols: term.cols, rows: term.rows });
+                console.log('Window resize: terminal fitted');
               } catch (error) {
                 console.warn('Resize fit failed:', error);
               }
@@ -196,7 +154,13 @@ const TerminalView = ({ image, onExit }) => {
       }
     };
 
-    window.addEventListener('resize', handleResize);
+    // Debounce window resize events
+    const debouncedWindowResize = () => {
+      clearTimeout(windowResizeTimeoutRef.current);
+      windowResizeTimeoutRef.current = setTimeout(handleResize, 150);
+    };
+
+    window.addEventListener('resize', debouncedWindowResize);
 
     termRef.current = term;
     socketRef.current = socket;
@@ -219,18 +183,14 @@ const TerminalView = ({ image, onExit }) => {
         }
       }
       
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('resize', debouncedWindowResize);
       
-      // Clean up ResizeObserver and timeout BEFORE disposing terminal
-      if (containerRef.current && containerRef.current._resizeObserver) {
-        containerRef.current._resizeObserver.disconnect();
-        delete containerRef.current._resizeObserver;
+      // Clear window resize timeout
+      if (windowResizeTimeoutRef.current) {
+        clearTimeout(windowResizeTimeoutRef.current);
       }
       
-      if (containerRef.current && containerRef.current._resizeTimeout) {
-        clearTimeout(containerRef.current._resizeTimeout);
-        delete containerRef.current._resizeTimeout;
-      }
+      // No ResizeObserver cleanup needed since we disabled it
       
       // Disconnect socket before disposing terminal
       if (socketRef.current) {
