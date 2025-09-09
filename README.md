@@ -17,6 +17,7 @@ A modern, containerized web interface for analyzing Docker images using the [div
 - 🔬 **Layer-by-Layer**: Detailed breakdown of each Docker layer with file counts and sizes
 - 📈 **Efficiency Insights**: Actionable recommendations for image optimization
 - 🎯 **Interactive Commands**: Expandable/collapsible Docker layer commands with syntax highlighting
+- 🖥️ **Dive Terminal**: Interactive PTY session streaming `dive <image>` output
 - ☁️ **Kubernetes Ready**: Complete Helm chart for Kubernetes deployment with AWS EKS optimizations
 - 🔧 **Enhanced UX**: Intelligent error handling with graceful fallbacks
 - 🚀 **CI/CD Automation**: Complete GitHub Actions workflows with automated deployment
@@ -306,6 +307,7 @@ Your CI/CD system is optimized for the GitHub free tier while providing enterpri
 
 ### Real-time Updates
 - `WebSocket /ws/inspect` - Real-time analysis progress updates
+- `Socket.IO /ws/terminal?image=<tag>` - Interactive dive terminal session
 
 ### Example API Usage
 
@@ -325,6 +327,16 @@ curl http://localhost:3000/api/health
 # Clean up analysis artifacts
 curl -X DELETE http://localhost:3000/api/inspect/nginx:alpine
 ```
+
+## Terminal Usage
+
+The `/ws/terminal` Socket.IO namespace streams a live `dive <image>` session.
+
+### Keybinds
+
+- Type commands directly to interact with dive
+- `q` or `Ctrl+C` — exit the session
+- `Resize` button or window resize — fit terminal dimensions
 
 ## Development
 
@@ -604,4 +616,4 @@ Have an idea? [Open an issue](https://github.com/aurablacklight/docker-dive-web-
 - **Setup**: `./setup-docker-local.sh` (one-time configuration)
 - **Performance**: 13x faster builds with BuildKit optimization
 # CI/CD Test
-This line was added to test the CI/CD pipeline.
+This line verifies the CI/CD pipeline is operational.

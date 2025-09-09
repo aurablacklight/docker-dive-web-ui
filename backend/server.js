@@ -9,6 +9,7 @@ const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
+const pty = require('node-pty');
 require('dotenv').config();
 
 // Import routes
@@ -150,6 +151,51 @@ io.on('connection', (socket) => {
       }
     }
   });
+});
+
+// Validate Docker image names
+const isValidImageName = (name) => {
+  const dockerImageRegex = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*[a-zA-Z0-9]*(:[a-zA-Z0-9._-]+)?$/;
+  return typeof name === 'string' && dockerImageRegex.test(name);
+};
+
+// Terminal namespace for interactive dive sessions
+io.of('/ws/terminal').on('connection', (socket) => {
+  const { image } = socket.handshake.query;
+
+  if (!isValidImageName(image)) {
+    socket.emit('error', 'Invalid image name');
+    return socket.disconnect(true);
+  }
+
+  const shell = pty.spawn('dive', [image], {
+    name: 'xterm-color',
+    cols: 80,
+    rows: 30,
+    env: process.env
+  });
+
+  const cleanup = () => {
+    if (shell && !shell.killed) {
+      shell.kill();
+    }
+  };
+
+  shell.onData((data) => socket.emit('data', data));
+  shell.onExit(({ exitCode }) => {
+    socket.emit('exit', exitCode);
+    cleanup();
+  });
+
+  socket.on('data', (d) => shell.write(d));
+  socket.on('resize', ({ cols, rows }) => {
+    if (cols && rows) {
+      shell.resize(cols, rows);
+    }
+  });
+
+  socket.on('disconnect', cleanup);
+  socket.on('error', cleanup);
 });
 
 // Make io available to routes
