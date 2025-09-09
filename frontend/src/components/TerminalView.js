@@ -58,9 +58,14 @@ const TerminalView = ({ image, onExit }) => {
             let lastHeight = 0;
             
             const resizeObserver = new ResizeObserver((entries) => {
-              if (!mountedRef.current || !fitRef.current) return;
+              // Exit early if component is unmounting or refs are null
+              if (!mountedRef.current || !fitRef.current || !termRef.current || !containerRef.current) {
+                return;
+              }
               
               const entry = entries[0];
+              if (!entry || !entry.contentRect) return;
+              
               const newWidth = entry.contentRect.width;
               const newHeight = entry.contentRect.height;
               
@@ -75,7 +80,8 @@ const TerminalView = ({ image, onExit }) => {
               // Debounce resize calls
               clearTimeout(resizeTimeout);
               resizeTimeout = setTimeout(() => {
-                if (mountedRef.current && fitRef.current) {
+                // Double check refs are still valid when timeout fires
+                if (mountedRef.current && fitRef.current && termRef.current && containerRef.current) {
                   try {
                     fitRef.current.fit();
                     console.log(`Terminal auto-resized to ${newWidth}x${newHeight}`);
@@ -198,7 +204,11 @@ const TerminalView = ({ image, onExit }) => {
 
     // CHECKLIST: cancel timers/subs on cleanup
     return () => {
+      // Set unmounted flag first to prevent any async operations
       mountedRef.current = false;
+      
+      // Clear fitRef early to prevent resize operations
+      fitRef.current = null;
       
       // Cancel any pending timeouts/animations
       if (initTimeoutRef.current) {
@@ -211,7 +221,7 @@ const TerminalView = ({ image, onExit }) => {
       
       window.removeEventListener('resize', handleResize);
       
-      // Clean up ResizeObserver and timeout
+      // Clean up ResizeObserver and timeout BEFORE disposing terminal
       if (containerRef.current && containerRef.current._resizeObserver) {
         containerRef.current._resizeObserver.disconnect();
         delete containerRef.current._resizeObserver;
@@ -222,17 +232,21 @@ const TerminalView = ({ image, onExit }) => {
         delete containerRef.current._resizeTimeout;
       }
       
+      // Disconnect socket before disposing terminal
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
       }
       
+      // Dispose terminal last and clear ref
       if (termRef.current) {
-        termRef.current.dispose();
+        try {
+          termRef.current.dispose();
+        } catch (error) {
+          console.warn('Terminal disposal error:', error);
+        }
         termRef.current = null;
       }
-      
-      fitRef.current = null;
     };
   }, [image, onExit]);
 
@@ -244,13 +258,19 @@ const TerminalView = ({ image, onExit }) => {
   };
 
   const handleExit = () => {
-    socketRef.current?.emit('data', 'q');
+    if (socketRef.current && mountedRef.current) {
+      socketRef.current.emit('data', 'q');
+    }
   };
 
   const handleManualResize = () => {
-    if (fitRef.current && termRef.current && socketRef.current) {
-      fitRef.current.fit();
-      socketRef.current.emit('resize', { cols: termRef.current.cols, rows: termRef.current.rows });
+    if (fitRef.current && termRef.current && socketRef.current && mountedRef.current) {
+      try {
+        fitRef.current.fit();
+        socketRef.current.emit('resize', { cols: termRef.current.cols, rows: termRef.current.rows });
+      } catch (error) {
+        console.warn('Manual resize failed:', error);
+      }
     }
   };
 
