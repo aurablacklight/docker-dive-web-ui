@@ -22,10 +22,9 @@ class DiveUtils {
   /**
    * Execute dive analysis on a Docker image
    * @param {string} imageName - Name of the image to analyze
-   * @param {function} progressCallback - Optional callback for progress updates
    * @returns {Promise<Object>} Dive analysis results
    */
-  async executeDive(imageName, progressCallback = null) {
+  async executeDive(imageName) {
     try {
       console.log(`Starting dive analysis for image: ${imageName}`);
 
@@ -121,10 +120,9 @@ class DiveUtils {
   /**
    * Execute dive synchronously
    * @param {string} imageName - Name of the image to analyze
-   * @param {string} outputFile - Path to output file
    * @returns {Promise<Object>} Analysis results
    */
-  async executeDiveSync(imageName, outputFile) {
+  async executeDiveSync(imageName) {
     if (!dockerImageRegex.test(imageName)) {
       throw new Error(`Invalid image name: ${imageName}`);
     }
@@ -181,11 +179,10 @@ class DiveUtils {
   /**
    * Execute dive with real-time progress updates
    * @param {string} imageName - Name of the image to analyze
-   * @param {string} outputFile - Path to output file
    * @param {function} progressCallback - Callback for progress updates
    * @returns {Promise<Object>} Analysis results
    */
-  executeDiveWithProgress(imageName, outputFile, progressCallback) {
+  executeDiveWithProgress(imageName, progressCallback) {
     return new Promise((resolve, reject) => {
       if (!dockerImageRegex.test(imageName)) {
         return reject(new Error(`Invalid image name: ${imageName}`));
