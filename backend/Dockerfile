@@ -1,7 +1,8 @@
 FROM node:18-alpine
 
-# Install system dependencies (cached layer - rarely changes)
-RUN apk add --no-cache curl docker-cli
+# Install system dependencies including Python and build tools (cached layer - rarely changes)
+RUN apk add --no-cache curl docker-cli python3 make g++ \
+    && ln -sf /usr/bin/python3 /usr/bin/python
 
 # Install dive binary (cached layer - rarely changes)
 RUN curl -OL https://github.com/wagoodman/dive/releases/download/v0.13.1/dive_0.13.1_linux_amd64.tar.gz && \
