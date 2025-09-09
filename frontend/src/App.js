@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { inspectImage, searchImages, cleanupAllImages } from './services/api';
+import TerminalView from './components/TerminalView';
 import './styles/simple.css';
 
 function App() {
@@ -14,6 +15,7 @@ function App() {
   const [allLayersExpanded, setAllLayersExpanded] = useState(false);
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [cleanupMessage, setCleanupMessage] = useState('');
+  const [showTerminal, setShowTerminal] = useState(false);
 
   // Popular images to show by default
   const popularImages = [
@@ -77,6 +79,7 @@ function App() {
     setError(null);
     setExpandedLayers(new Set()); // Reset expanded layers
     setAllLayersExpanded(false);
+    setShowTerminal(false); // Reset terminal view
   };
 
   const handleCleanup = async () => {
@@ -145,6 +148,14 @@ function App() {
           </button>
           <h1 className="app-title">Analyzing: {currentImage}</h1>
           <p className="app-subtitle">Layer-by-layer breakdown and efficiency analysis</p>
+          <div className="header-actions">
+            <button 
+              onClick={() => setShowTerminal(!showTerminal)} 
+              className="terminal-toggle-button glass"
+            >
+              {showTerminal ? '📊 Show Analysis' : '💻 Interactive Terminal'}
+            </button>
+          </div>
         </header>
         
         {loading && (
@@ -215,7 +226,24 @@ function App() {
                 </div>
               </main>
             ) : (
-              <main className="main-content">
+              showTerminal ? (
+                <main className="main-content">
+                  <div className="terminal-container">
+                    <h2 style={{ color: '#fff', marginBottom: '20px' }}>
+                      Interactive Dive Terminal - {currentImage}
+                    </h2>
+                    <p style={{ color: '#aaa', marginBottom: '20px' }}>
+                      Use this interactive terminal to explore the image with dive commands.
+                      Press 'q' to quit the dive session.
+                    </p>
+                    <TerminalView 
+                      image={currentImage} 
+                      onExit={() => setShowTerminal(false)} 
+                    />
+                  </div>
+                </main>
+              ) : (
+                <main className="main-content">
             <div className="metrics-grid">
               <div className="metric-card">
                 <div className="metric-icon">📦</div>
@@ -299,6 +327,7 @@ function App() {
               </div>
             </div>
           </main>
+              )
             )}
           </>
         )}

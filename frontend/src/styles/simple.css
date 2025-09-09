@@ -678,3 +678,41 @@ body {
     max-width: none;
   }
 }
+
+/* Terminal Styles */
+.terminal-toggle-button {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  color: white;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.terminal-toggle-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.terminal-container {
+  padding: 2rem;
+}
+
+.terminal {
+  background: #1a1a1a;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  min-height: 400px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
