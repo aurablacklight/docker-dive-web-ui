@@ -2,6 +2,9 @@ version: '3.8'
 
 services:
   backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     image: dive-inspector-backend:latest
     container_name: dive-inspector-backend
     restart: unless-stopped
@@ -23,6 +26,9 @@ services:
       retries: 3
 
   frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     image: dive-inspector-frontend:latest
     container_name: dive-inspector-frontend
     restart: unless-stopped
