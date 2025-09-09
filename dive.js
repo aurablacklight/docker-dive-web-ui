@@ -5,6 +5,7 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 const execAsync = promisify(exec);
+const dockerImageRegex = /^[a-zA-Z0-9][a-zA-Z0-9._\/-]*[a-zA-Z0-9]*(?::[a-zA-Z0-9._-]+)?$/;
 
 /**
  * Dive utility functions for Docker image analysis
@@ -123,24 +124,54 @@ class DiveUtils {
    * @returns {Promise<Object>} Analysis results
    */
   async executeDiveSync(imageName, outputFile) {
-    try {
-      // Run dive with CI mode for JSON output
-      const { stdout, stderr } = await execAsync(
-        `${this.diveCommand} --json /tmp/dive-output.json ${imageName} && cat /tmp/dive-output.json`,
-        { 
-          timeout: 300000, // 5 minutes timeout
-          env: { ...process.env, DOCKER_CLI_EXPERIMENTAL: 'enabled' }
-        }
-      );
-
-      // Parse the output and create structured results
-      const analysis = await this.parseDiveOutput(stdout, stderr, imageName);
-      
-      return analysis;
-    } catch (error) {
-      console.error(`Dive sync execution failed:`, error);
-      throw new Error(`Dive execution failed: ${error.message}`);
+    if (!dockerImageRegex.test(imageName)) {
+      throw new Error(`Invalid image name: ${imageName}`);
     }
+
+    const jsonFile = `/tmp/dive-output-${Date.now()}.json`;
+
+    return new Promise((resolve, reject) => {
+      const diveProcess = spawn(this.diveCommand, ['--json', jsonFile, imageName], {
+        env: { ...process.env, DOCKER_CLI_EXPERIMENTAL: 'enabled' },
+        timeout: 300000
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      diveProcess.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      diveProcess.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      diveProcess.on('error', (error) => {
+        console.error('Dive sync execution failed:', error);
+        reject(new Error(`Dive execution failed: ${error.message}`));
+      });
+
+      diveProcess.on('close', async (code) => {
+        try {
+          if (code !== 0) {
+            return reject(new Error(`Dive process exited with code ${code}: ${stderr}`));
+          }
+
+          const fileExists = await fs.pathExists(jsonFile);
+          if (fileExists) {
+            const jsonContent = await fs.readFile(jsonFile, 'utf8');
+            await fs.unlink(jsonFile).catch(() => {});
+            const parsedOutput = JSON.parse(jsonContent);
+            resolve(await this.parseJSONOutput(parsedOutput, imageName));
+          } else {
+            resolve(await this.parseDiveOutput(stdout, stderr, imageName));
+          }
+        } catch (err) {
+          reject(new Error(`Dive execution failed: ${err.message}`));
+        }
+      });
+    });
   }
 
   /**
@@ -150,11 +181,15 @@ class DiveUtils {
    * @param {function} progressCallback - Callback for progress updates
    * @returns {Promise<Object>} Analysis results
    */
-  executeDiveWithProgress(imageName, outputFile, progressCallback) {
-    return new Promise((resolve, reject) => {
-      const diveProcess = spawn(this.diveCommand, ['--json', '/tmp/dive-output.json', imageName], {
-        env: { ...process.env, DOCKER_CLI_EXPERIMENTAL: 'enabled' }
-      });
+    executeDiveWithProgress(imageName, outputFile, progressCallback) {
+      return new Promise((resolve, reject) => {
+        if (!dockerImageRegex.test(imageName)) {
+          return reject(new Error(`Invalid image name: ${imageName}`));
+        }
+
+        const diveProcess = spawn(this.diveCommand, ['--json', '/tmp/dive-output.json', imageName], {
+          env: { ...process.env, DOCKER_CLI_EXPERIMENTAL: 'enabled' }
+        });
 
       let output = '';
       let errorOutput = '';
