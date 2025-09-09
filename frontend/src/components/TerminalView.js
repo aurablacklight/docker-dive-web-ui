@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
@@ -13,6 +13,7 @@ const TerminalView = ({ image, onExit }) => {
   const mountedRef = useRef(true);
   const initTimeoutRef = useRef(null);
   const windowResizeTimeoutRef = useRef(null);
+  const [showHelp, setShowHelp] = useState(false);
 
   // Reset mounted flag on mount
   useEffect(() => {
@@ -242,10 +243,80 @@ const TerminalView = ({ image, onExit }) => {
         onClick={handleTerminalClick}
         style={{ minHeight: '400px', minWidth: '600px' }}
       />
-      <div className="flex space-x-2">
-        <button onClick={handleExit} className="glass px-3 py-1">Exit</button>
-        <button onClick={handleManualResize} className="glass px-3 py-1">Resize</button>
+      <div className="flex justify-between items-center">
+        <div className="flex space-x-2">
+          <button onClick={handleExit} className="glass px-3 py-1">Exit</button>
+          <button onClick={handleManualResize} className="glass px-3 py-1">Resize</button>
+        </div>
+        <button 
+          onClick={() => setShowHelp(!showHelp)} 
+          className="glass px-3 py-1 text-white hover:bg-white hover:bg-opacity-10"
+          title="Show keyboard shortcuts"
+        >
+          ❓ Help
+        </button>
       </div>
+      
+      {showHelp && (
+        <div className="glass-card p-4 text-white bg-black bg-opacity-50">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-bold text-lg">🚀 Dive Keyboard Shortcuts</h3>
+            <button 
+              onClick={() => setShowHelp(false)} 
+              className="text-white hover:text-gray-300"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div>
+              <h4 className="font-semibold mb-2 text-blue-300">🔍 Navigation & Views</h4>
+              <div className="space-y-1">
+                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+C</kbd> or <kbd className="bg-gray-700 px-1 rounded">Q</kbd> Exit</div>
+                <div><kbd className="bg-gray-700 px-1 rounded">Tab</kbd> Switch layer/filetree views</div>
+                <div><kbd className="bg-gray-700 px-1 rounded">↑/K</kbd> Move up one line</div>
+                <div><kbd className="bg-gray-700 px-1 rounded">↓/J</kbd> Move down one line</div>
+                <div><kbd className="bg-gray-700 px-1 rounded">PageUp/U</kbd> Scroll up a page</div>
+                <div><kbd className="bg-gray-700 px-1 rounded">PageDown/D</kbd> Scroll down a page</div>
+              </div>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-2 text-green-300">� Layer View</h4>
+              <div className="space-y-1">
+                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+A</kbd> Aggregated modifications</div>
+                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+L</kbd> Current layer modifications</div>
+              </div>
+              <h4 className="font-semibold mb-2 mt-3 text-yellow-300">🗂️ Filter & Search</h4>
+              <div className="space-y-1">
+                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+F</kbd> Filter files</div>
+                <div><kbd className="bg-gray-700 px-1 rounded">ESC</kbd> Close filter</div>
+              </div>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-2 text-purple-300">📁 Filetree View</h4>
+              <div className="space-y-1">
+                <div><kbd className="bg-gray-700 px-1 rounded">Space</kbd> Collapse/expand directory</div>
+                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+Space</kbd> Collapse/expand all</div>
+                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+A</kbd> Show/hide added files</div>
+                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+R</kbd> Show/hide removed files</div>
+                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+M</kbd> Show/hide modified files</div>
+                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+U</kbd> Show/hide unmodified files</div>
+                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+B</kbd> Show/hide file attributes</div>
+              </div>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-2 text-orange-300">💡 Quick Tips</h4>
+              <div className="space-y-1 text-gray-300">
+                <div>• Click terminal first to focus</div>
+                <div>• Use Tab to switch views</div>
+                <div>• Ctrl+C or Q to exit safely</div>
+                <div>• Ctrl+F to search files</div>
+                <div>• Space to collapse directories</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
