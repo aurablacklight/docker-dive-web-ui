@@ -5,6 +5,7 @@ A modern, containerized web interface for analyzing Docker images using the [div
 ## ✅ Latest Updates
 
 **🔧 Jest Testing Fixed + Simplified Architecture** - Single production environment with Jest support!
+**📦 Dive utility consolidated** - `backend/utils/dive.js` is now the canonical helper.
 
 ## Features
 
