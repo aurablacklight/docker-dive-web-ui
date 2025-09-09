@@ -1,7 +1,7 @@
 FROM node:18-alpine
 
-# Install system dependencies including Python and build tools (cached layer - rarely changes)
-RUN apk add --no-cache curl docker-cli python3 make g++ \
+# Install system dependencies including Python, build tools, and ncurses for dive terminal (cached layer - rarely changes)
+RUN apk add --no-cache curl docker-cli python3 make g++ ncurses \
     && ln -sf /usr/bin/python3 /usr/bin/python
 
 # Install dive binary (cached layer - rarely changes)

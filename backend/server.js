@@ -40,11 +40,9 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.NODE_ENV === 'production' 
-      ? ["https://dive.docker-senpai.dev", "https://docker-senpai.dev"]
-      : "http://localhost:3001",
+    origin: "*", // YOLO - disable CORS entirely for dev
     methods: ["GET", "POST"],
-    credentials: true
+    credentials: false
   }
 });
 
@@ -92,16 +90,16 @@ if (process.env.NODE_ENV === 'production') {
   app.use('/api/inspect', inspectLimiter);
 }
 
-// CORS middleware - apply before all routes
-app.use(corsMiddleware);
+// CORS middleware - DISABLED FOR DEV SPEED
+// app.use(corsMiddleware);
 
-// Additional CORS headers for development and production
+// Additional CORS headers for development - DISABLE ALL THE THINGS
 if (process.env.NODE_ENV !== 'production') {
   app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', 'http://localhost:3001');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Origin', '*'); // YOLO
+    res.header('Access-Control-Allow-Methods', '*');
+    res.header('Access-Control-Allow-Headers', '*');
+    res.header('Access-Control-Allow-Credentials', 'false');
     if (req.method === 'OPTIONS') {
       return res.sendStatus(200);
     }
