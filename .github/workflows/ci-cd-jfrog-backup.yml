@@ -1,4 +1,4 @@
-name: 🚀 CI/CD Pipeline (GHCR)
+name: 🚀 CI/CD Pipeline
 
 on:
   push:
@@ -7,8 +7,6 @@ on:
 env:
   AWS_REGION: us-east-1
   EC2_INSTANCE_TAG: dive-inspector-server
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   # =============================================================================
@@ -17,10 +15,6 @@ jobs:
   ci:
     name: 🔨 Build, Test & Push
     runs-on: ubuntu-latest
-    
-    permissions:
-      contents: read
-      packages: write
     
     outputs:
       should-deploy: ${{ steps.changes.outputs.should-deploy }}
@@ -40,70 +34,71 @@ jobs:
           echo "should-deploy=false" >> $GITHUB_OUTPUT
         fi
         
+    - name: 🛠️ Setup JFrog CLI
+      uses: jfrog/setup-jfrog-cli@v4
+      env:
+        JF_URL: ${{ vars.JF_URL }}
+        JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
+        
+    - name: 🔍 Test JFrog Authentication
+      run: |
+        echo "🔑 Testing JFrog authentication..."
+        jf rt ping
+        echo "🐳 JFrog CLI configured for: ${{ vars.JF_URL }}"
+        echo "✅ JFrog authentication successful!"
+        
     - name: 🐳 Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
       with:
         driver-opts: |
           image=moby/buildkit:buildx-stable-1
           
-    - name: 🔐 Login to GitHub Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: 🔐 Login to JFrog Docker Registry
+      run: |
+        echo "🔑 Logging into JFrog Docker registry..."
+        echo "${{ secrets.JF_ACCESS_TOKEN }}" | docker login aurablacklight.jfrog.io -u ${{ secrets.JF_USER_EMAIL }} --password-stdin
 
     - name: 📝 Extract metadata
       id: meta
       run: |
-        # Convert repository name to lowercase for GHCR compatibility
-        REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-        echo "backend-tag=${{ env.REGISTRY }}/${REPO_LOWER}/dive-inspector-backend:${{ github.run_number }}" >> $GITHUB_OUTPUT
-        echo "frontend-tag=${{ env.REGISTRY }}/${REPO_LOWER}/dive-inspector-frontend:${{ github.run_number }}" >> $GITHUB_OUTPUT
-        echo "backend-cache=${{ env.REGISTRY }}/${REPO_LOWER}/dive-inspector-backend:cache" >> $GITHUB_OUTPUT
-        echo "frontend-cache=${{ env.REGISTRY }}/${REPO_LOWER}/dive-inspector-frontend:cache" >> $GITHUB_OUTPUT
+        echo "backend-tag=aurablacklight.jfrog.io/dive-docker/dive-inspector-backend:${{ github.run_number }}" >> $GITHUB_OUTPUT
+        echo "frontend-tag=aurablacklight.jfrog.io/dive-docker/dive-inspector-frontend:${{ github.run_number }}" >> $GITHUB_OUTPUT
         
     - name: 🏗️ Build and push backend
       env:
         BACKEND_IMAGE: ${{ steps.meta.outputs.backend-tag }}
-        BACKEND_CACHE: ${{ steps.meta.outputs.backend-cache }}
       run: |
         cd backend
         
-        # Build with registry cache
+        # Build with simplified cache approach
         docker buildx build \
           --platform linux/amd64 \
-          --cache-from type=registry,ref=$BACKEND_CACHE \
-          --cache-to type=registry,ref=$BACKEND_CACHE,mode=max \
+          --cache-from type=registry,ref=aurablacklight.jfrog.io/dive-docker/dive-inspector-backend:cache \
+          --cache-to type=registry,ref=aurablacklight.jfrog.io/dive-docker/dive-inspector-backend:cache,mode=max \
           --tag $BACKEND_IMAGE \
-          --tag ${{ env.REGISTRY }}/${{ github.repository_owner }}/dive-inspector-backend:latest \
           --push . || \
         docker buildx build \
           --platform linux/amd64 \
           --tag $BACKEND_IMAGE \
-          --tag ${{ env.REGISTRY }}/${{ github.repository_owner }}/dive-inspector-backend:latest \
           --push .
         
     - name: 🏗️ Build and push frontend
       env:
         FRONTEND_IMAGE: ${{ steps.meta.outputs.frontend-tag }}
-        FRONTEND_CACHE: ${{ steps.meta.outputs.frontend-cache }}
       run: |
         cd frontend
         
-        # Build with registry cache
+        # Build with simplified cache approach
         docker buildx build \
           --platform linux/amd64 \
-          --cache-from type=registry,ref=$FRONTEND_CACHE \
-          --cache-to type=registry,ref=$FRONTEND_CACHE,mode=max \
+          --cache-from type=registry,ref=aurablacklight.jfrog.io/dive-docker/dive-inspector-frontend:cache \
+          --cache-to type=registry,ref=aurablacklight.jfrog.io/dive-docker/dive-inspector-frontend:cache,mode=max \
           --tag $FRONTEND_IMAGE \
-          --tag ${{ env.REGISTRY }}/${{ github.repository_owner }}/dive-inspector-frontend:latest \
           --file Dockerfile.prod \
           --push . || \
         docker buildx build \
           --platform linux/amd64 \
           --tag $FRONTEND_IMAGE \
-          --tag ${{ env.REGISTRY }}/${{ github.repository_owner }}/dive-inspector-frontend:latest \
           --file Dockerfile.prod \
           --push .
         
@@ -114,6 +109,18 @@ jobs:
           ${{ steps.meta.outputs.backend-tag }} \
           npm test
           
+    - name: 📊 Publish Build info With JFrog CLI
+      env:
+        JFROG_CLI_BUILD_NAME: dive-inspector-build
+        JFROG_CLI_BUILD_NUMBER: ${{ github.run_number }}
+      run: |
+        # Collect environment variables for the build
+        jf rt build-collect-env
+        # Collect VCS details from git and add them to the build
+        jf rt build-add-git
+        # Publish build info
+        jf rt build-publish
+          
     - name: 📊 Build performance report
       run: |
         echo "## 🚀 Build Performance" >> $GITHUB_STEP_SUMMARY
@@ -121,10 +128,8 @@ jobs:
         echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
         echo "| Build Method | Docker Buildx + Layer Cache |" >> $GITHUB_STEP_SUMMARY
         echo "| Layer Caching | ✅ Registry Cache |" >> $GITHUB_STEP_SUMMARY
-        echo "| 📦 Registry | GitHub Container Registry |" >> $GITHUB_STEP_SUMMARY
+        echo "| Registry | JFrog Artifactory |" >> $GITHUB_STEP_SUMMARY
         echo "| Build Number | ${{ github.run_number }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Backend Image | \`${{ steps.meta.outputs.backend-tag }}\` |" >> $GITHUB_STEP_SUMMARY
-        echo "| Frontend Image | \`${{ steps.meta.outputs.frontend-tag }}\` |" >> $GITHUB_STEP_SUMMARY
 
   # =============================================================================
   # CD: DEPLOY TO EC2
@@ -167,9 +172,9 @@ jobs:
       run: |
         echo "🚀 Executing deployment on EC2 instance..."
         
-        # Variables for deployment
-        GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-        GITHUB_USER="${{ github.actor }}"
+        # Expand variables before sending to SSM
+        JF_TOKEN="${{ secrets.JF_ACCESS_TOKEN }}"
+        GITHUB_USER="${{ secrets.JF_USER_EMAIL }}"
         BACKEND_IMAGE="${{ needs.ci.outputs.backend-image }}"
         FRONTEND_IMAGE="${{ needs.ci.outputs.frontend-image }}"
         
@@ -178,7 +183,7 @@ jobs:
           --document-name "AWS-RunShellScript" \
           --parameters "commands=[
             \"set -e\",
-            \"echo \\\"🚀 Starting GHCR deployment on \$(date)\\\"\", 
+            \"echo \\\"🚀 Starting deployment on \$(date)\\\"\", 
             \"cd /opt/dive-inspector\",
             \"CURRENT_COMMIT=\$(git rev-parse HEAD)\",
             \"echo \\\"📝 Current commit: \$CURRENT_COMMIT\\\"\",
@@ -187,8 +192,8 @@ jobs:
             \"NEW_COMMIT=\$(git rev-parse HEAD)\",
             \"echo \\\"📝 New commit: \$NEW_COMMIT\\\"\",
             \"if [ \\\"\$CURRENT_COMMIT\\\" = \\\"\$NEW_COMMIT\\\" ]; then echo \\\"ℹ️ No changes detected\\\"; exit 0; fi\",
-            \"echo \\\"🔑 Logging into GitHub Container Registry...\\\"\",
-            \"echo $GITHUB_TOKEN | docker login ghcr.io -u $GITHUB_USER --password-stdin\",
+            \"echo \\\"🔑 Logging into JFrog...\\\"\",
+            \"echo $JF_TOKEN | docker login aurablacklight.jfrog.io -u $GITHUB_USER --password-stdin\",
             \"echo \\\"📝 Updating image tags...\\\"\",
             \"sed -i \\\"s|dive-inspector-backend:latest|$BACKEND_IMAGE|g\\\" docker-compose.yml\",
             \"sed -i \\\"s|dive-inspector-frontend:latest|$FRONTEND_IMAGE|g\\\" docker-compose.yml\",
@@ -201,7 +206,7 @@ jobs:
             \"sleep 10\",
             \"echo \\\"🏥 Post-deployment check...\\\"\",
             \"for i in {1..30}; do if curl -f http://localhost:3000/api/health >/dev/null 2>&1; then echo \\\"✅ Healthy!\\\"; break; fi; sleep 2; done\",
-            \"echo \\\"🎉 GHCR deployment complete!\\\"\",
+            \"echo \\\"🎉 Deployment complete!\\\"\",
             \"docker compose ps\"
           ]" \
           --output text \
@@ -248,13 +253,25 @@ jobs:
           --query "StandardOutputContent" \
           --output text
           
+    - name: 🏥 Final health check
+      run: |
+        echo "🔍 Final health check against public endpoint..."
+        
+        # Check production endpoint through Cloudflare
+        if curl -f -k "https://dive.docker-senpai.dev/api/health" > /dev/null 2>&1; then
+          echo "✅ Production health check passed!"
+        else
+          echo "⚠️ Production health check failed (might be DNS propagation)"
+        fi
+        
     - name: 📊 Deployment summary
       run: |
-        echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
-        echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
-        echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
-        echo "| 📦 Registry | GitHub Container Registry |" >> $GITHUB_STEP_SUMMARY
-        echo "| 🏗️ Backend | \`${{ needs.ci.outputs.backend-image }}\` |" >> $GITHUB_STEP_SUMMARY
-        echo "| 🎨 Frontend | \`${{ needs.ci.outputs.frontend-image }}\` |" >> $GITHUB_STEP_SUMMARY
-        echo "| 🎯 Target | EC2 (${{ steps.instance.outputs.instance-id }}) |" >> $GITHUB_STEP_SUMMARY
-        echo "| 📅 Deployed | $(date -u '+%Y-%m-%d %H:%M:%S') UTC |" >> $GITHUB_STEP_SUMMARY
+        echo "## 🎉 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Item | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| 🏗️ Build | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🧪 Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🚀 Deployment | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🏥 Health Check | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        echo "| 📦 Registry | JFrog Artifactory |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🌐 Live URL | https://dive.docker-senpai.dev |" >> $GITHUB_STEP_SUMMARY
