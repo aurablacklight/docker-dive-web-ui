@@ -1,8 +1,9 @@
-name: 🚀 CI/CD Pipeline
+name: 🚀 CI/CD Pipeline (JFrog - DISABLED)
 
+# DISABLED: This workflow is archived and not active
+# To restore JFrog: rename this file to remove .disabled extension
 on:
-  push:
-    branches: [ main ]
+  workflow_dispatch:  # Only manual trigger, no automatic runs
 
 env:
   AWS_REGION: us-east-1
