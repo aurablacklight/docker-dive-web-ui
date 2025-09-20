@@ -258,26 +258,26 @@ const TerminalView = ({ image, onExit }) => {
       </div>
       
       {showHelp && (
-        <div className="glass-card p-4 text-white bg-black bg-opacity-50">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="font-bold text-lg">🚀 Dive Keyboard Shortcuts</h3>
+        <div className="glass-card p-6 text-white bg-black bg-opacity-75 max-w-6xl mx-auto">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-bold text-xl">🚀 Dive Keyboard Shortcuts</h3>
             <button 
               onClick={() => setShowHelp(false)} 
-              className="text-white hover:text-gray-300"
+              className="text-white hover:text-gray-300 text-xl"
             >
               ✕
             </button>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-            <div>
-              <h4 className="font-semibold mb-2 text-blue-300">🔍 Navigation & Views</h4>
-              <div className="space-y-1">
-                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+C</kbd> or <kbd className="bg-gray-700 px-1 rounded">Q</kbd> Exit</div>
-                <div><kbd className="bg-gray-700 px-1 rounded">Tab</kbd> Switch layer/filetree views</div>
-                <div><kbd className="bg-gray-700 px-1 rounded">↑/K</kbd> Move up one line</div>
-                <div><kbd className="bg-gray-700 px-1 rounded">↓/J</kbd> Move down one line</div>
-                <div><kbd className="bg-gray-700 px-1 rounded">PageUp/U</kbd> Scroll up a page</div>
-                <div><kbd className="bg-gray-700 px-1 rounded">PageDown/D</kbd> Scroll down a page</div>
+          <div className="grid grid-cols-1 lg:grid-cols-4 md:grid-cols-2 gap-6 text-sm">
+            <div className="bg-gradient-to-br from-blue-900 to-blue-800 p-4 rounded-lg border border-blue-600">
+              <h4 className="font-semibold mb-3 text-blue-300 text-base">🔍 Navigation & Views</h4>
+              <div className="space-y-2">
+                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">Ctrl+C</kbd> or <kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">Q</kbd> Exit</div>
+                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">Tab</kbd> Switch layer/filetree views</div>
+                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">↑/K</kbd> Move up one line</div>
+                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">↓/J</kbd> Move down one line</div>
+                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">PageUp/U</kbd> Scroll up a page</div>
+                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">PageDown/D</kbd> Scroll down a page</div>
               </div>
             </div>
             <div>
