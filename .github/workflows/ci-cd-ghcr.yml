@@ -1,4 +1,4 @@
-name: 🚀 CI/CD Pipeline
+name: 🚀 CI/CD Pipeline (GHCR)
 
 on:
   push:
@@ -40,49 +40,7 @@ jobs:
           echo "should-deploy=false" >> $GITHUB_OUTPUT
         fi
         
-    - name: � Generate APM Loaders
-      run: |
-        echo "🔍 Generating New Relic browser loader..."
-        
-        # Create New Relic loader from template
-        if [ ! -z "${{ secrets.NR_LICENSE_KEY }}" ]; then
-          # Fetch New Relic browser agent script via NerdGraph API
-          LOADER_SCRIPT=$(curl -X POST 'https://api.newrelic.com/graphql' \
-            -H 'Content-Type: application/json' \
-            -H 'API-Key: ${{ secrets.NR_API_KEY }}' \
-            -d '{
-              "query": "{ actor { account(id: ${{ secrets.NR_ACCOUNT_ID }}) { browser { application(guid: \"${{ secrets.NR_BROWSER_GUID }}\") { browserConfig { loaderScript } } } } } }"
-            }' | jq -r '.data.actor.account.browser.application.browserConfig.loaderScript' || echo "console.log('NR API failed');"
-          )
-          
-          # Replace placeholder in template
-          sed "s|// PLACEHOLDER: NR_BROWSER_LOADER_SCRIPT will be replaced by CI/CD|${LOADER_SCRIPT}|g" \
-            frontend/src/nr-loader.template.js > frontend/src/nr-loader.js
-          echo "✅ New Relic loader generated"
-        else
-          echo "// New Relic not configured" > frontend/src/nr-loader.js
-          echo "⚠️ New Relic skipped (no license key)"
-        fi
-        
-        echo "🔍 Generating Datadog RUM loader..."
-        
-        # Create Datadog loader from template
-        if [ ! -z "${{ secrets.DD_CLIENT_TOKEN }}" ]; then
-          envsubst << 'EOF' > frontend/src/dd-loader.js
-        $(cat frontend/src/dd-loader.template.js)
-        EOF
-          echo "✅ Datadog loader generated"
-        else
-          echo "// Datadog not configured" > frontend/src/dd-loader.js
-          echo "⚠️ Datadog skipped (no client token)"
-        fi
-      env:
-        DD_APPLICATION_ID: ${{ secrets.DD_APPLICATION_ID }}
-        DD_CLIENT_TOKEN: ${{ secrets.DD_CLIENT_TOKEN }}
-        DD_SITE: ${{ secrets.DD_SITE }}
-        NODE_ENV: production
-        
-    - name: �🐳 Set up Docker Buildx
+    - name: 🐳 Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
       with:
         driver-opts: |
