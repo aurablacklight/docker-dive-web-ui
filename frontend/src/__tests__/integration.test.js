@@ -164,31 +164,68 @@ describe('App Integration Tests', () => {
     });
   });
 
-  test('cleanup workflow with success and cancellation', async () => {
+  test('inspected image delete workflow with success and cancellation', async () => {
     const user = userEvent.setup();
-    
-    // Mock successful cleanup
-    const cleanupResult = {
-      success: true,
-      details: { deletedCount: 10, protectedImages: ['nginx:latest'] }
+    const inspectionData = {
+      analysis: {
+        analysis: {
+          totalLayers: 1,
+          totalSize: 1000,
+          wastedSpace: 0,
+          efficiency: 100
+        },
+        layers: [
+          {
+            id: 'layer1',
+            size: 1000,
+            command: 'FROM ghcr.io/owner/repo:tag',
+            efficiency: 100,
+            wasted_size: 0
+          }
+        ]
+      }
     };
-    api.cleanupAllImages.mockResolvedValue(cleanupResult);
+    api.inspectImage.mockResolvedValue(inspectionData);
+    api.removeImage.mockResolvedValue({ success: true, imageName: 'ghcr.io/owner/repo:tag' });
     
     render(<App />);
-    
-    const cleanupButton = screen.getByText(/🧹 clean up images/i);
-    await user.click(cleanupButton);
-    
+
+    api.searchImages.mockResolvedValue([
+      { name: 'ghcr.io/owner/repo:tag', description: 'Namespaced image' }
+    ]);
+
+    const searchInput = screen.getByPlaceholderText(/search for docker images/i);
+    const searchButton = screen.getByRole('button', { name: /search/i });
+    await user.type(searchInput, 'repo');
+    await user.click(searchButton);
+
     await waitFor(() => {
-      expect(screen.getByText(/success! deleted 10 images/i)).toBeInTheDocument();
+      expect(screen.getByText('ghcr.io/owner/repo:tag')).toBeInTheDocument();
     });
     
-    // Test cleanup cancellation
+    const inspectButtons = screen.getAllByText(/pull and inspect/i);
+    await user.click(inspectButtons[inspectButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(screen.getByText(/analyzing: ghcr.io\/owner\/repo:tag/i)).toBeInTheDocument();
+    });
+    
+    const deleteButton = screen.getByRole('button', { name: /delete image/i });
+    await user.click(deleteButton);
+
+    await waitFor(() => {
+      expect(api.removeImage).toHaveBeenCalledWith('ghcr.io/owner/repo:tag');
+      expect(global.confirm).toHaveBeenCalledWith(
+        'Delete ghcr.io/owner/repo:tag from this Docker Dive host?\nThis does not prune any other images or build cache.'
+      );
+      expect(screen.getByText(/deleted ghcr.io\/owner\/repo:tag from this docker dive host/i)).toBeInTheDocument();
+    });
+    
     global.confirm = jest.fn(() => false);
     jest.clearAllMocks();
     
-    await user.click(cleanupButton);
+    await user.click(deleteButton);
     
-    expect(api.cleanupAllImages).not.toHaveBeenCalled();
+    expect(api.removeImage).not.toHaveBeenCalled();
   });
 });

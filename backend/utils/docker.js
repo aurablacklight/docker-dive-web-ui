@@ -1,8 +1,9 @@
-const { exec, spawn } = require('child_process');
+const { exec, execFile, spawn } = require('child_process');
 const { promisify } = require('util');
 const path = require('path');
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * Docker utility functions for image operations
@@ -130,86 +131,13 @@ class DockerUtils {
   }
 
   /**
-   * Remove all Docker images except the ones running this service (safer cleanup!)
-   * @returns {Promise<Object>} Cleanup result
-   */
-  async cleanupAllImages() {
-    try {
-      console.log('🧹 Performing SAFE cleanup - preserving service images');
-      
-      // Get list of images to exclude (the ones running this service)
-      const servicesToProtect = [
-        'dive-inspector-backend:latest',
-        'dive-inspector-frontend:latest'
-      ];
-      
-      // Get all images
-      const allImages = await this.listImages();
-      console.log(`Found ${allImages.length} total images`);
-      
-      // Filter out protected service images
-      const imagesToDelete = allImages.filter(img => {
-        const fullName = `${img.repository}:${img.tag}`;
-        const isProtected = servicesToProtect.includes(fullName);
-        if (isProtected) {
-          console.log(`🛡️ PROTECTING service image: ${fullName}`);
-        }
-        return !isProtected;
-      });
-      
-      console.log(`🗑️ Will delete ${imagesToDelete.length} images (protecting ${servicesToProtect.length} service images)`);
-      
-      let deletedCount = 0;
-      let errors = [];
-      
-      // Delete images one by one to avoid deleting service images
-      for (const image of imagesToDelete) {
-        try {
-          const fullName = `${image.repository}:${image.tag}`;
-          console.log(`Deleting: ${fullName}`);
-          await this.removeImage(fullName, true); // force remove
-          deletedCount++;
-        } catch (error) {
-          console.error(`Failed to delete ${image.repository}:${image.tag}:`, error.message);
-          errors.push(`${image.repository}:${image.tag} - ${error.message}`);
-        }
-      }
-      
-      // Also run docker system prune to clean up dangling resources
-      try {
-        const { stdout } = await execAsync(`${this.dockerCommand} system prune -f`);
-        console.log('System prune completed:', stdout);
-      } catch (pruneError) {
-        console.error('System prune failed:', pruneError.message);
-        errors.push(`System prune failed: ${pruneError.message}`);
-      }
-
-      return {
-        success: true,
-        message: `Safely deleted ${deletedCount} images (protected ${servicesToProtect.length} service images)`,
-        output: `Deleted ${deletedCount} images`,
-        deletedCount,
-        protectedImages: servicesToProtect,
-        errors: errors.length > 0 ? errors : null
-      };
-    } catch (error) {
-      console.error('Failed to cleanup images safely:', error);
-      throw new Error(`Failed to cleanup images: ${error.message}`);
-    }
-  }
-
-  /**
    * Remove a Docker image
    * @param {string} imageName - Name or ID of the image to remove
-   * @param {boolean} force - Whether to force removal
    * @returns {Promise<Object>} Remove result
    */
-  async removeImage(imageName, force = false) {
+  async removeImage(imageName) {
     try {
-      const forceFlag = force ? ' -f' : '';
-      const { stdout, stderr } = await execAsync(
-        `${this.dockerCommand} rmi${forceFlag} ${imageName}`
-      );
+      const { stdout, stderr } = await execFileAsync(this.dockerCommand, ['rmi', imageName]);
 
       return {
         success: true,

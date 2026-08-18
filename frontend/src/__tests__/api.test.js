@@ -3,7 +3,7 @@ jest.mock('axios');
 
 const axios = require('axios').default || require('axios');
 const { mockAxiosInstance } = require('../__mocks__/axios');
-const { searchImages, inspectImage, cleanupAllImages } = require('../services/api');
+const { searchImages, inspectImage, removeImage } = require('../services/api');
 
 describe('API Service', () => {
   beforeEach(() => {
@@ -98,37 +98,28 @@ describe('API Service', () => {
     });
   });
 
-  describe('cleanupAllImages', () => {
-    test('returns cleanup results successfully', async () => {
+  describe('removeImage', () => {
+    test('removes a namespaced image using encoded path segment', async () => {
       const mockResponse = {
         data: {
           success: true,
-          details: {
-            deletedCount: 5,
-            protectedImages: ['nginx:latest', 'postgres:13']
-          }
+          imageName: 'ghcr.io/owner/repo:tag'
         }
       };
-      
-      mockAxiosInstance.post.mockResolvedValue(mockResponse);
-      
-      const result = await cleanupAllImages();
-      
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/images/cleanup');
+
+      mockAxiosInstance.delete.mockResolvedValue(mockResponse);
+
+      const result = await removeImage('ghcr.io/owner/repo:tag');
+
+      expect(mockAxiosInstance.delete).toHaveBeenCalledWith('/images/ghcr.io%2Fowner%2Frepo%3Atag');
       expect(result).toEqual(mockResponse.data);
     });
 
-    test('handles cleanup errors', async () => {
-      const errorMessage = 'Cleanup failed';
-      mockAxiosInstance.post.mockRejectedValue(new Error(errorMessage));
-      
-      await expect(cleanupAllImages()).rejects.toThrow(errorMessage);
-    });
+    test('handles remove errors', async () => {
+      const errorMessage = 'Remove failed';
+      mockAxiosInstance.delete.mockRejectedValue(new Error(errorMessage));
 
-    test('handles network errors during cleanup', async () => {
-      mockAxiosInstance.post.mockRejectedValue(new Error('Network timeout'));
-      
-      await expect(cleanupAllImages()).rejects.toThrow('Network timeout');
+      await expect(removeImage('nginx:latest')).rejects.toThrow(errorMessage);
     });
   });
 });

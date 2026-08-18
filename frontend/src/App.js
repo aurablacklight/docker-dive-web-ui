@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { inspectImage, searchImages, cleanupAllImages } from './services/api';
+import { inspectImage, searchImages, removeImage } from './services/api';
 import TerminalView from './components/TerminalView';
 import './styles/simple.css';
 
@@ -13,8 +13,8 @@ function App() {
   const [images, setImages] = useState([]);
   const [expandedLayers, setExpandedLayers] = useState(new Set()); // Track expanded layers
   const [allLayersExpanded, setAllLayersExpanded] = useState(false);
-  const [cleanupLoading, setCleanupLoading] = useState(false);
-  const [cleanupMessage, setCleanupMessage] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteMessage, setDeleteMessage] = useState('');
   const [showTerminal, setShowTerminal] = useState(false);
 
   // Popular images to show by default
@@ -82,33 +82,35 @@ function App() {
     setShowTerminal(false); // Reset terminal view
   };
 
-  const handleCleanup = async () => {
-    if (!window.confirm('⚠️ This will DELETE analyzed Docker images (but keep service running)!\n\nAre you sure you want to continue?')) {
+  const handleDeleteCurrentImage = async () => {
+    if (!currentImage) {
+      return;
+    }
+
+    if (!window.confirm(`Delete ${currentImage} from this Docker Dive host?\nThis does not prune any other images or build cache.`)) {
       return;
     }
 
     try {
-      setCleanupLoading(true);
-      setCleanupMessage('');
-      console.log('🧹 Starting cleanup of all Docker images...');
+      setDeleteLoading(true);
+      setDeleteMessage('');
       
-      const result = await cleanupAllImages();
+      await removeImage(currentImage);
       
-      setCleanupMessage(`✅ Success! Deleted ${result.details?.deletedCount || 0} images`);
-      console.log('Cleanup completed:', result);
+      setDeleteMessage(`Deleted ${currentImage} from this Docker Dive host.`);
       
       // Auto-clear message after 5 seconds
-      setTimeout(() => setCleanupMessage(''), 5000);
+      setTimeout(() => setDeleteMessage(''), 5000);
       
     } catch (err) {
-      const errorMsg = `❌ Cleanup failed: ${err.message}`;
-      setCleanupMessage(errorMsg);
-      console.error('Cleanup error:', err);
+      const errorMsg = `Delete failed for ${currentImage}: ${err.message}`;
+      setDeleteMessage(errorMsg);
+      console.error('Delete image error:', err);
       
       // Auto-clear error after 10 seconds
-      setTimeout(() => setCleanupMessage(''), 10000);
+      setTimeout(() => setDeleteMessage(''), 10000);
     } finally {
-      setCleanupLoading(false);
+      setDeleteLoading(false);
     }
   };
 
@@ -149,6 +151,16 @@ function App() {
           <h1 className="app-title">Analyzing: {currentImage}</h1>
           <p className="app-subtitle">Layer-by-layer breakdown and efficiency analysis</p>
           <div className="header-actions">
+            {inspectionData && !loading && !error && (
+              <button
+                onClick={handleDeleteCurrentImage}
+                className={`cleanup-button ${deleteLoading ? 'loading' : ''}`}
+                disabled={deleteLoading}
+                title={`Delete ${currentImage}`}
+              >
+                {deleteLoading ? 'Deleting...' : 'Delete Image'}
+              </button>
+            )}
             <button 
               onClick={() => setShowTerminal(!showTerminal)} 
               className="terminal-toggle-button glass"
@@ -156,6 +168,11 @@ function App() {
               {showTerminal ? '📊 Show Analysis' : '💻 Interactive Terminal'}
             </button>
           </div>
+          {deleteMessage && (
+            <div className={`cleanup-message ${deleteMessage.includes('failed') ? 'error' : 'success'}`}>
+              {deleteMessage}
+            </div>
+          )}
         </header>
         
         {loading && (
@@ -342,21 +359,6 @@ function App() {
           <div className="header-title">
             <h1 className="app-title">🐋 Dive Docker Image Inspector</h1>
             <p className="app-subtitle">Analyze Docker images layer by layer</p>
-          </div>
-          <div className="header-actions">
-            <button 
-              className={`cleanup-button ${cleanupLoading ? 'loading' : ''}`}
-              onClick={handleCleanup}
-              disabled={cleanupLoading}
-              title="Delete analyzed Docker images (keeps service running)"
-            >
-              {cleanupLoading ? '🧹 Cleaning...' : '🗑️ Clean Up Images'}
-            </button>
-            {cleanupMessage && (
-              <div className={`cleanup-message ${cleanupMessage.includes('❌') ? 'error' : 'success'}`}>
-                {cleanupMessage}
-              </div>
-            )}
           </div>
         </div>
       </header>

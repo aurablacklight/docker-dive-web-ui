@@ -106,7 +106,12 @@ router.delete('/:imageName',
 
       const { imageName } = req.params;
       const decodedImageName = decodeURIComponent(imageName);
-      const { force = false } = req.query;
+      if (Object.prototype.hasOwnProperty.call(req.query, 'force')) {
+        return res.status(400).json({
+          error: 'Force delete is not supported',
+          imageName: decodedImageName
+        });
+      }
       
       console.log(`Removing Docker image: ${decodedImageName}`);
       
@@ -127,7 +132,7 @@ router.delete('/:imageName',
         });
       }
 
-      const result = await dockerUtils.removeImage(decodedImageName, force === 'true');
+      const result = await dockerUtils.removeImage(decodedImageName);
       
       res.json({
         success: true,
@@ -284,60 +289,6 @@ router.get('/docker-info', async (req, res) => {
     console.error('Docker info error:', error);
     res.status(500).json({
       error: 'Failed to get Docker information',
-      message: error.message
-    });
-  }
-});
-
-/**
- * POST /api/images/cleanup
- * Clean up all Docker images (nuclear option!)
- */
-router.post('/cleanup', async (req, res) => {
-  try {
-    console.log('🧹 Starting Docker image cleanup - DELETING ALL IMAGES');
-    
-    // Check if Docker is available
-    const dockerAvailable = await dockerUtils.isDockerAvailable();
-    if (!dockerAvailable) {
-      return res.status(503).json({
-        error: 'Docker is not available or not accessible'
-      });
-    }
-
-    // Get list of all images before cleanup
-    const imagesBefore = await dockerUtils.listImages();
-    console.log(`Found ${imagesBefore.length} images to delete`);
-
-    // Nuclear option: Remove ALL images with force
-    const cleanupResult = await dockerUtils.cleanupAllImages();
-    
-    // Get list of remaining images after cleanup
-    const imagesAfter = await dockerUtils.listImages();
-    const deletedCount = imagesBefore.length - imagesAfter.length;
-    
-    console.log(`🗑️ Cleanup complete! Deleted ${deletedCount} images`);
-    
-    res.json({
-      success: true,
-      message: `Successfully deleted ${deletedCount} Docker images`,
-      details: {
-        imagesBefore: imagesBefore.length,
-        imagesAfter: imagesAfter.length,
-        deletedCount: deletedCount,
-        remainingImages: imagesAfter.map(img => ({
-          repository: img.repository,
-          tag: img.tag,
-          size: img.size
-        }))
-      },
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('Cleanup error:', error);
-    res.status(500).json({
-      error: 'Failed to perform cleanup',
       message: error.message
     });
   }

@@ -87,43 +87,70 @@ describe('App Component', () => {
     });
   });
 
-  test('cleanup functionality works with confirmation', async () => {
+  test('delete inspected image works with exact confirmation', async () => {
     const user = userEvent.setup();
-    const mockCleanupResult = {
-      details: { deletedCount: 5 }
+    const mockInspectionData = {
+      analysis: {
+        analysis: { totalLayers: 5, totalSize: 1000, efficiency: 85 },
+        layers: [
+          { id: '1', size: 200, command: 'RUN apt-get update', efficiency: 90 }
+        ]
+      }
     };
     
-    api.cleanupAllImages.mockResolvedValue(mockCleanupResult);
+    api.inspectImage.mockResolvedValue(mockInspectionData);
+    api.removeImage.mockResolvedValue({ success: true, imageName: 'nginx:latest' });
     
-    // Mock window.confirm
     global.confirm = jest.fn(() => true);
     
     render(<App />);
     
-    const cleanupButton = screen.getByText(/🧹 clean up images/i);
-    await user.click(cleanupButton);
-    
+    const inspectButton = screen.getAllByText(/pull and inspect/i)[0];
+    await user.click(inspectButton);
+
     await waitFor(() => {
-      expect(api.cleanupAllImages).toHaveBeenCalled();
+      expect(screen.getByText(/analyzing: nginx/i)).toBeInTheDocument();
     });
+
+    const deleteButton = screen.getByRole('button', { name: /delete image/i });
+    await user.click(deleteButton);
     
     await waitFor(() => {
-      expect(screen.getByText(/success! deleted 5 images/i)).toBeInTheDocument();
+      expect(api.removeImage).toHaveBeenCalledWith('nginx');
+      expect(global.confirm).toHaveBeenCalledWith(
+        'Delete nginx from this Docker Dive host?\nThis does not prune any other images or build cache.'
+      );
+      expect(screen.getByText(/deleted nginx from this docker dive host/i)).toBeInTheDocument();
     });
   });
 
-  test('cleanup cancellation works', async () => {
+  test('delete cancellation performs no API call', async () => {
     const user = userEvent.setup();
+    const mockInspectionData = {
+      analysis: {
+        analysis: { totalLayers: 5, totalSize: 1000, efficiency: 85 },
+        layers: [
+          { id: '1', size: 200, command: 'RUN apt-get update', efficiency: 90 }
+        ]
+      }
+    };
     
-    // Mock window.confirm to return false
+    api.inspectImage.mockResolvedValue(mockInspectionData);
     global.confirm = jest.fn(() => false);
     
     render(<App />);
+
+    const inspectButton = screen.getAllByText(/pull and inspect/i)[0];
+    await user.click(inspectButton);
     
-    const cleanupButton = screen.getByText(/🧹 clean up images/i);
-    await user.click(cleanupButton);
+    await waitFor(() => {
+      expect(screen.getByText(/analyzing: nginx/i)).toBeInTheDocument();
+    });
+
+    const deleteButton = screen.getByRole('button', { name: /delete image/i });
+    await user.click(deleteButton);
     
-    expect(api.cleanupAllImages).not.toHaveBeenCalled();
+    expect(api.removeImage).not.toHaveBeenCalled();
   });
 
   test('handles search errors gracefully', async () => {
