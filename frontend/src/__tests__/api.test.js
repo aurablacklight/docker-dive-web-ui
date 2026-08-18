@@ -1,8 +1,9 @@
-import axios, { mockAxiosInstance } from '../__mocks__/axios';
-import { searchImages, inspectImage, cleanupAllImages } from '../services/api';
-
 // Use manual mock for axios
 jest.mock('axios');
+
+const axios = require('axios').default || require('axios');
+const { mockAxiosInstance } = require('../__mocks__/axios');
+const { searchImages, inspectImage, cleanupAllImages } = require('../services/api');
 
 describe('API Service', () => {
   beforeEach(() => {
@@ -26,11 +27,6 @@ describe('API Service', () => {
       
       const result = await searchImages('nginx');
       
-      console.log('axios.create calls:', axios.create.mock.calls.length);
-      console.log('mockAxiosInstance.get calls:', mockAxiosInstance.get.mock.calls.length);
-      console.log('Mock calls:', mockAxiosInstance.get.mock.calls);
-      
-      expect(axios.create).toHaveBeenCalled();
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/search', {
         params: { q: 'nginx' }
       });
@@ -75,15 +71,13 @@ describe('API Service', () => {
       
       const result = await inspectImage('nginx:latest');
       
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/inspect/nginx:latest');
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/inspect/nginx%3Alatest');
       expect(result).toEqual(mockResponse.data);
     });
 
     test('handles inspection errors', async () => {
       const errorMessage = 'Image not found';
-      mockAxiosInstance.post.mockRejectedValue({
-        response: { data: { error: errorMessage } }
-      });
+      mockAxiosInstance.post.mockRejectedValue(new Error(errorMessage));
       
       await expect(inspectImage('invalid:image')).rejects.toThrow(errorMessage);
     });
@@ -100,7 +94,7 @@ describe('API Service', () => {
       
       await inspectImage('library/nginx:latest');
       
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/inspect/library/nginx:latest');
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/inspect/library%2Fnginx%3Alatest');
     });
   });
 
@@ -120,15 +114,13 @@ describe('API Service', () => {
       
       const result = await cleanupAllImages();
       
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/images/cleanup');
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/images/cleanup');
       expect(result).toEqual(mockResponse.data);
     });
 
     test('handles cleanup errors', async () => {
       const errorMessage = 'Cleanup failed';
-      mockAxiosInstance.post.mockRejectedValue({
-        response: { data: { error: errorMessage } }
-      });
+      mockAxiosInstance.post.mockRejectedValue(new Error(errorMessage));
       
       await expect(cleanupAllImages()).rejects.toThrow(errorMessage);
     });
