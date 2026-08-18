@@ -1,9 +1,16 @@
-const { exec, execFile, spawn } = require('child_process');
-const { promisify } = require('util');
+const { execFile, spawn } = require('child_process');
 const path = require('path');
+const { assertValidImageName } = require('./image-name');
 
-const execAsync = promisify(exec);
-const execFileAsync = promisify(execFile);
+const execFileAsync = (file, args) => new Promise((resolve, reject) => {
+  execFile(file, args, (error, stdout, stderr) => {
+    if (error) {
+      reject(error);
+      return;
+    }
+    resolve({ stdout, stderr });
+  });
+});
 
 /**
  * Docker utility functions for image operations
@@ -21,14 +28,14 @@ class DockerUtils {
    */
   async pullImage(imageName, progressCallback = null) {
     try {
+      assertValidImageName(imageName);
       console.log(`Pulling Docker image: ${imageName}`);
       
       if (progressCallback) {
         // Use spawn for real-time progress
         return this.pullImageWithProgress(imageName, progressCallback);
       } else {
-        // Use exec for simple pull
-        const { stdout, stderr } = await execAsync(`${this.dockerCommand} pull ${imageName}`);
+        const { stdout, stderr } = await execFileAsync(this.dockerCommand, ['pull', imageName]);
         
         return {
           success: true,
@@ -51,6 +58,13 @@ class DockerUtils {
    */
   pullImageWithProgress(imageName, progressCallback) {
     return new Promise((resolve, reject) => {
+      try {
+        assertValidImageName(imageName);
+      } catch (error) {
+        reject(error);
+        return;
+      }
+
       const pullProcess = spawn(this.dockerCommand, ['pull', imageName]);
       let output = '';
       let errorOutput = '';
@@ -103,9 +117,11 @@ class DockerUtils {
    */
   async listImages() {
     try {
-      const { stdout } = await execAsync(
-        `${this.dockerCommand} images --format "{{.Repository}}:{{.Tag}}|{{.ID}}|{{.CreatedAt}}|{{.Size}}"`
-      );
+      const { stdout } = await execFileAsync(this.dockerCommand, [
+        'images',
+        '--format',
+        '{{.Repository}}:{{.Tag}}|{{.ID}}|{{.CreatedAt}}|{{.Size}}'
+      ]);
 
       const images = stdout
         .trim()
@@ -137,6 +153,7 @@ class DockerUtils {
    */
   async removeImage(imageName) {
     try {
+      assertValidImageName(imageName);
       const { stdout, stderr } = await execFileAsync(this.dockerCommand, ['rmi', imageName]);
 
       return {
@@ -158,9 +175,8 @@ class DockerUtils {
    */
   async getImageInfo(imageName) {
     try {
-      const { stdout } = await execAsync(
-        `${this.dockerCommand} inspect ${imageName}`
-      );
+      assertValidImageName(imageName);
+      const { stdout } = await execFileAsync(this.dockerCommand, ['inspect', imageName]);
 
       const imageInfo = JSON.parse(stdout)[0];
       
@@ -187,7 +203,7 @@ class DockerUtils {
    */
   async isDockerAvailable() {
     try {
-      await execAsync(`${this.dockerCommand} --version`);
+      await execFileAsync(this.dockerCommand, ['--version']);
       return true;
     } catch (error) {
       console.error('Docker is not available:', error);
@@ -201,7 +217,7 @@ class DockerUtils {
    */
   async getDockerVersion() {
     try {
-      const { stdout } = await execAsync(`${this.dockerCommand} version --format json`);
+      const { stdout } = await execFileAsync(this.dockerCommand, ['version', '--format', 'json']);
       return JSON.parse(stdout);
     } catch (error) {
       console.error('Failed to get Docker version:', error);
@@ -215,8 +231,9 @@ class DockerUtils {
    * @returns {Promise<boolean>} Whether the image exists locally
    */
   async imageExists(imageName) {
+    assertValidImageName(imageName);
     try {
-      await execAsync(`${this.dockerCommand} inspect ${imageName}`);
+      await execFileAsync(this.dockerCommand, ['inspect', imageName]);
       return true;
     } catch (error) {
       return false;
@@ -230,9 +247,14 @@ class DockerUtils {
    */
   async getImageHistory(imageName) {
     try {
-      const { stdout } = await execAsync(
-        `${this.dockerCommand} history ${imageName} --format "{{.ID}}|{{.CreatedBy}}|{{.Size}}|{{.CreatedAt}}" --no-trunc`
-      );
+      assertValidImageName(imageName);
+      const { stdout } = await execFileAsync(this.dockerCommand, [
+        'history',
+        imageName,
+        '--format',
+        '{{.ID}}|{{.CreatedBy}}|{{.Size}}|{{.CreatedAt}}',
+        '--no-trunc'
+      ]);
 
       const layers = stdout
         .trim()

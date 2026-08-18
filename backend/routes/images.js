@@ -1,8 +1,14 @@
 const express = require('express');
-const { body, param, validationResult } = require('express-validator');
 const dockerUtils = require('../utils/docker');
+const { validateImageName } = require('../utils/image-name');
 
 const router = express.Router();
+
+const sendInvalidImageName = (res, imageName) => res.status(400).json({
+  error: 'Invalid image name',
+  imageName,
+  message: validateImageName(imageName).reason
+});
 
 /**
  * GET /api/images/local
@@ -32,26 +38,12 @@ router.get('/local', async (req, res) => {
  * Pull a Docker image from registry
  */
 router.post('/pull',
-  [
-    body('imageName')
-      .trim()
-      .isLength({ min: 1, max: 255 })
-      .withMessage('Image name must be between 1 and 255 characters')
-      .matches(/^[a-zA-Z0-9][a-zA-Z0-9._/-]*[a-zA-Z0-9]*(:[a-zA-Z0-9._-]+)?$/)
-      .withMessage('Invalid image name format')
-  ],
   async (req, res) => {
     try {
-      // Check for validation errors
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          error: 'Invalid request body',
-          details: errors.array()
-        });
-      }
-
       const { imageName } = req.body;
+      if (!validateImageName(imageName).valid) {
+        return sendInvalidImageName(res, imageName);
+      }
       
       console.log(`Pulling Docker image: ${imageName}`);
       
@@ -88,22 +80,8 @@ router.post('/pull',
  * Remove a local Docker image
  */
 router.delete('/:imageName',
-  [
-    param('imageName')
-      .trim()
-      .isLength({ min: 1, max: 255 })
-      .withMessage('Image name must be between 1 and 255 characters')
-  ],
   async (req, res) => {
     try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          error: 'Invalid image name',
-          details: errors.array()
-        });
-      }
-
       const { imageName } = req.params;
       const decodedImageName = decodeURIComponent(imageName);
       if (Object.prototype.hasOwnProperty.call(req.query, 'force')) {
@@ -111,6 +89,10 @@ router.delete('/:imageName',
           error: 'Force delete is not supported',
           imageName: decodedImageName
         });
+      }
+
+      if (!validateImageName(decodedImageName).valid) {
+        return sendInvalidImageName(res, decodedImageName);
       }
       
       console.log(`Removing Docker image: ${decodedImageName}`);
@@ -157,24 +139,13 @@ router.delete('/:imageName',
  * Get detailed information about a local image
  */
 router.get('/:imageName/info',
-  [
-    param('imageName')
-      .trim()
-      .isLength({ min: 1, max: 255 })
-      .withMessage('Image name must be between 1 and 255 characters')
-  ],
   async (req, res) => {
     try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          error: 'Invalid image name',
-          details: errors.array()
-        });
-      }
-
       const { imageName } = req.params;
       const decodedImageName = decodeURIComponent(imageName);
+      if (!validateImageName(decodedImageName).valid) {
+        return sendInvalidImageName(res, decodedImageName);
+      }
       
       console.log(`Getting info for image: ${decodedImageName}`);
       
@@ -211,24 +182,13 @@ router.get('/:imageName/info',
  * Get the layer history of an image
  */
 router.get('/:imageName/history',
-  [
-    param('imageName')
-      .trim()
-      .isLength({ min: 1, max: 255 })
-      .withMessage('Image name must be between 1 and 255 characters')
-  ],
   async (req, res) => {
     try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          error: 'Invalid image name',
-          details: errors.array()
-        });
-      }
-
       const { imageName } = req.params;
       const decodedImageName = decodeURIComponent(imageName);
+      if (!validateImageName(decodedImageName).valid) {
+        return sendInvalidImageName(res, decodedImageName);
+      }
       
       console.log(`Getting history for image: ${decodedImageName}`);
       

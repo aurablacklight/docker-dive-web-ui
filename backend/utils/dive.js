@@ -1,11 +1,18 @@
-const { exec, spawn } = require('child_process');
-const { promisify } = require('util');
+const { execFile, spawn } = require('child_process');
 const fs = require('fs-extra');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const { assertValidImageName } = require('./image-name');
 
-const execAsync = promisify(exec);
-const dockerImageRegex = /^[a-zA-Z0-9][a-zA-Z0-9._\/-]*[a-zA-Z0-9]*(?::[a-zA-Z0-9._-]+)?$/;
+const execFileAsync = (file, args) => new Promise((resolve, reject) => {
+  execFile(file, args, (error, stdout, stderr) => {
+    if (error) {
+      reject(error);
+      return;
+    }
+    resolve({ stdout, stderr });
+  });
+});
 
 /**
  * Dive utility functions for Docker image analysis
@@ -26,16 +33,14 @@ class DiveUtils {
    */
   async executeDive(imageName) {
     try {
+      assertValidImageName(imageName);
       console.log(`Starting dive analysis for image: ${imageName}`);
 
-      // Use real dive analysis now
       return this.executeDiveSync(imageName);
 
     } catch (error) {
       console.error(`Dive analysis failed for ${imageName}:`, error);
-      // Fall back to mock data if dive fails
-      console.log('Falling back to mock data...');
-      return this.getMockAnalysis(imageName);
+      throw error;
     }
   }
 
@@ -123,9 +128,7 @@ class DiveUtils {
    * @returns {Promise<Object>} Analysis results
    */
   async executeDiveSync(imageName) {
-    if (!dockerImageRegex.test(imageName)) {
-      throw new Error(`Invalid image name: ${imageName}`);
-    }
+    assertValidImageName(imageName);
 
     const jsonFile = `/tmp/dive-output-${Date.now()}.json`;
     console.log(`[DEBUG] Starting dive execution for ${imageName}, output file: ${jsonFile}`);
@@ -184,8 +187,11 @@ class DiveUtils {
    */
   executeDiveWithProgress(imageName, progressCallback) {
     return new Promise((resolve, reject) => {
-      if (!dockerImageRegex.test(imageName)) {
-        return reject(new Error(`Invalid image name: ${imageName}`));
+      try {
+        assertValidImageName(imageName);
+      } catch (error) {
+        reject(error);
+        return;
       }
 
       const jsonFile = `/tmp/dive-output-${Date.now()}.json`;
@@ -486,7 +492,7 @@ class DiveUtils {
    */
   async isDiveAvailable() {
     try {
-      await execAsync(`${this.diveCommand} --version`);
+      await execFileAsync(this.diveCommand, ['--version']);
       return true;
     } catch (error) {
       console.error('Dive is not available:', error);

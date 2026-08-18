@@ -10,6 +10,7 @@ const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
 const pty = require('node-pty');
+const { validateImageName } = require('./utils/image-name');
 require('dotenv').config();
 
 // Track active PTY processes for cleanup
@@ -167,17 +168,11 @@ io.on('connection', (socket) => {
   });
 });
 
-// Validate Docker image names
-const isValidImageName = (name) => {
-  const dockerImageRegex = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*[a-zA-Z0-9]*(:[a-zA-Z0-9._-]+)?$/;
-  return typeof name === 'string' && dockerImageRegex.test(name);
-};
-
 // Terminal namespace for interactive dive sessions
 io.of('/ws/terminal').on('connection', (socket) => {
   const { image } = socket.handshake.query;
 
-  if (!isValidImageName(image)) {
+  if (!validateImageName(image).valid) {
     socket.emit('error', 'Invalid image name');
     return socket.disconnect(true);
   }
