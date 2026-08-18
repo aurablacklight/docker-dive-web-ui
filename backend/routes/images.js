@@ -17,9 +17,9 @@ const sendInvalidImageName = (res, imageName) => res.status(400).json({
 router.get('/local', async (req, res) => {
   try {
     console.log('Listing local Docker images');
-    
+
     const images = await dockerUtils.listImages();
-    
+
     res.json({
       count: images.length,
       images
@@ -44,9 +44,9 @@ router.post('/pull',
       if (!validateImageName(imageName).valid) {
         return sendInvalidImageName(res, imageName);
       }
-      
+
       console.log(`Pulling Docker image: ${imageName}`);
-      
+
       // Check if Docker is available
       const dockerAvailable = await dockerUtils.isDockerAvailable();
       if (!dockerAvailable) {
@@ -56,7 +56,7 @@ router.post('/pull',
       }
 
       const result = await dockerUtils.pullImage(imageName);
-      
+
       res.json({
         success: true,
         imageName,
@@ -94,9 +94,9 @@ router.delete('/:imageName',
       if (!validateImageName(decodedImageName).valid) {
         return sendInvalidImageName(res, decodedImageName);
       }
-      
+
       console.log(`Removing Docker image: ${decodedImageName}`);
-      
+
       // Check if Docker is available
       const dockerAvailable = await dockerUtils.isDockerAvailable();
       if (!dockerAvailable) {
@@ -115,7 +115,7 @@ router.delete('/:imageName',
       }
 
       const result = await dockerUtils.removeImage(decodedImageName);
-      
+
       res.json({
         success: true,
         imageName: decodedImageName,
@@ -146,9 +146,9 @@ router.get('/:imageName/info',
       if (!validateImageName(decodedImageName).valid) {
         return sendInvalidImageName(res, decodedImageName);
       }
-      
+
       console.log(`Getting info for image: ${decodedImageName}`);
-      
+
       // Check if image exists
       const imageExists = await dockerUtils.imageExists(decodedImageName);
       if (!imageExists) {
@@ -159,7 +159,7 @@ router.get('/:imageName/info',
       }
 
       const imageInfo = await dockerUtils.getImageInfo(decodedImageName);
-      
+
       res.json({
         imageName: decodedImageName,
         info: imageInfo,
@@ -189,9 +189,9 @@ router.get('/:imageName/history',
       if (!validateImageName(decodedImageName).valid) {
         return sendInvalidImageName(res, decodedImageName);
       }
-      
+
       console.log(`Getting history for image: ${decodedImageName}`);
-      
+
       // Check if image exists
       const imageExists = await dockerUtils.imageExists(decodedImageName);
       if (!imageExists) {
@@ -202,7 +202,7 @@ router.get('/:imageName/history',
       }
 
       const history = await dockerUtils.getImageHistory(decodedImageName);
-      
+
       res.json({
         imageName: decodedImageName,
         layerCount: history.length,
@@ -228,9 +228,9 @@ router.get('/:imageName/history',
 router.get('/docker-info', async (req, res) => {
   try {
     console.log('Getting Docker system information');
-    
+
     const dockerAvailable = await dockerUtils.isDockerAvailable();
-    
+
     if (!dockerAvailable) {
       return res.status(503).json({
         error: 'Docker is not available or not accessible'
@@ -238,7 +238,7 @@ router.get('/docker-info', async (req, res) => {
     }
 
     const dockerVersion = await dockerUtils.getDockerVersion();
-    
+
     res.json({
       available: true,
       version: dockerVersion,

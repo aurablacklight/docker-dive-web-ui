@@ -31,7 +31,7 @@ function App() {
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
-    
+
     try {
       setLoading(true);
       setError(null);
@@ -56,7 +56,7 @@ function App() {
       setError(null);
       setCurrentView('inspect');
       setCurrentImage(imageName);
-      
+
       console.log(`Inspecting image: ${imageName}`);
       const result = await inspectImage(imageName);
       console.log('Full inspection result:', result);
@@ -94,19 +94,19 @@ function App() {
     try {
       setDeleteLoading(true);
       setDeleteMessage('');
-      
+
       await removeImage(currentImage);
-      
+
       setDeleteMessage(`Deleted ${currentImage} from this Docker Dive host.`);
-      
+
       // Auto-clear message after 5 seconds
       setTimeout(() => setDeleteMessage(''), 5000);
-      
+
     } catch (err) {
       const errorMsg = `Delete failed for ${currentImage}: ${err.message}`;
       setDeleteMessage(errorMsg);
       console.error('Delete image error:', err);
-      
+
       // Auto-clear error after 10 seconds
       setTimeout(() => setDeleteMessage(''), 10000);
     } finally {
@@ -161,8 +161,8 @@ function App() {
                 {deleteLoading ? 'Deleting...' : 'Delete Image'}
               </button>
             )}
-            <button 
-              onClick={() => setShowTerminal(!showTerminal)} 
+            <button
+              onClick={() => setShowTerminal(!showTerminal)}
               className="terminal-toggle-button glass"
             >
               {showTerminal ? '📊 Show Analysis' : '💻 Interactive Terminal'}
@@ -174,14 +174,14 @@ function App() {
             </div>
           )}
         </header>
-        
+
         {loading && (
           <div className="loading-screen">
             <div className="spinner"></div>
             <p>Analyzing image layers...</p>
           </div>
         )}
-        
+
         {error && (
           <div className="error-screen">
             <h2>Error</h2>
@@ -189,7 +189,7 @@ function App() {
             <button onClick={backToSearch}>Back to Search</button>
           </div>
         )}
-        
+
         {inspectionData && (
           <>
             {inspectionData.analysis?.is_cat_fallback ? (
@@ -202,9 +202,9 @@ function App() {
                   minHeight: '80vh',
                   padding: '20px'
                 }}>
-                  <h2 style={{ 
-                    color: '#fff', 
-                    textAlign: 'center', 
+                  <h2 style={{
+                    color: '#fff',
+                    textAlign: 'center',
                     marginBottom: '20px',
                     fontSize: '2rem'
                   }}>
@@ -217,8 +217,8 @@ function App() {
                     overflow: 'hidden',
                     boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
                   }}>
-                    <img 
-                      src={inspectionData.analysis.results?.[0]?.cat_image_url || inspectionData.analysis.layers?.[0]?.cat_data?.image_url} 
+                    <img
+                      src={inspectionData.analysis.results?.[0]?.cat_image_url || inspectionData.analysis.layers?.[0]?.cat_data?.image_url}
                       alt="Cute cat fallback"
                       style={{
                         width: '100%',
@@ -232,9 +232,9 @@ function App() {
                       }}
                     />
                   </div>
-                  <p style={{ 
-                    color: '#aaa', 
-                    textAlign: 'center', 
+                  <p style={{
+                    color: '#aaa',
+                    textAlign: 'center',
                     marginTop: '20px',
                     fontSize: '1.2rem'
                   }}>
@@ -253,9 +253,9 @@ function App() {
                       Use this interactive terminal to explore the image with dive commands.
                       Press &lsquo;q&rsquo; to quit the dive session.
                     </p>
-                    <TerminalView 
-                      image={currentImage} 
-                      onExit={() => setShowTerminal(false)} 
+                    <TerminalView
+                      image={currentImage}
+                      onExit={() => setShowTerminal(false)}
                     />
                   </div>
                 </main>
@@ -267,26 +267,26 @@ function App() {
                 <div className="metric-value">{inspectionData.analysis?.analysis?.totalLayers || 0}</div>
                 <div className="metric-label">Total Layers</div>
               </div>
-              
+
               <div className="metric-card">
                 <div className="metric-icon">💾</div>
                 <div className="metric-value">{formatBytes(inspectionData.analysis?.analysis?.totalSize || 0)}</div>
                 <div className="metric-label">Total Size</div>
               </div>
-              
+
               <div className="metric-card">
                 <div className="metric-icon">⚠️</div>
                 <div className="metric-value">{formatBytes(inspectionData.analysis?.analysis?.wastedSpace || 0)}</div>
                 <div className="metric-label">Wasted Space</div>
               </div>
-              
+
               <div className="metric-card">
                 <div className="metric-icon">⚡</div>
                 <div className="metric-value">{inspectionData.analysis?.analysis?.efficiency || 0}%</div>
                 <div className="metric-label">Efficiency</div>
               </div>
             </div>
-            
+
             <div className="analysis-section">
               <h2>⚡ Efficiency Analysis</h2>
               <div className="efficiency-details">
@@ -295,12 +295,12 @@ function App() {
                 <p>Potential Savings: {formatBytes(inspectionData.analysis?.analysis?.wastedSpace || 0)} ({((inspectionData.analysis?.analysis?.wastedSpace || 0) / (inspectionData.analysis?.analysis?.totalSize || 1) * 100).toFixed(1)}% reduction possible)</p>
               </div>
             </div>
-            
+
             <div className="layers-section">
               <div className="layers-header">
                 <h2>🔍 Layer Breakdown</h2>
-                <button 
-                  className="expand-toggle-btn" 
+                <button
+                  className="expand-toggle-btn"
                   onClick={toggleAllLayers}
                   title={allLayersExpanded ? "Collapse All Commands" : "Expand All Commands"}
                 >
@@ -312,7 +312,7 @@ function App() {
                   const layerId = layer.id || index;
                   const isExpanded = expandedLayers.has(layerId);
                   const hasLongCommand = (layer.command || '').length > 100;
-                  
+
                   return (
                     <div key={layerId} className="layer-item">
                       <div className="layer-header">
@@ -322,7 +322,7 @@ function App() {
                       </div>
                       <div className="layer-command-container">
                         {hasLongCommand && (
-                          <button 
+                          <button
                             className="command-toggle-btn"
                             onClick={() => toggleLayer(layerId)}
                             title={isExpanded ? "Collapse command" : "Expand command"}
@@ -362,11 +362,11 @@ function App() {
           </div>
         </div>
       </header>
-      
+
       <main className="main-content">
         <div className="search-container">
-          <input 
-            type="text" 
+          <input
+            type="text"
             className="search-input"
             placeholder="Search for Docker images (e.g., nginx, postgres, node...)"
             value={searchQuery}
@@ -377,9 +377,9 @@ function App() {
             <button className="search-button" onClick={handleSearch} disabled={loading}>
               {loading ? 'Searching...' : 'Search'}
             </button>
-            <button 
-              className="clear-button" 
-              onClick={handleClearSearch} 
+            <button
+              className="clear-button"
+              onClick={handleClearSearch}
               disabled={loading || (!searchQuery && images.length === 0)}
               title="Clear search and results"
             >
@@ -387,20 +387,20 @@ function App() {
             </button>
           </div>
         </div>
-        
+
         {error && (
           <div className="error-message">
             <p>{error}</p>
           </div>
         )}
-        
+
         <div className="popular-section">
           <h2>Popular Images</h2>
           <div className="image-grid">
             {popularImages.map((image) => (
-              <div 
-                key={image.name} 
-                className="image-card" 
+              <div
+                key={image.name}
+                className="image-card"
                 onClick={() => handleInspect(image.name)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
@@ -418,15 +418,15 @@ function App() {
             ))}
           </div>
         </div>
-        
+
         {images.length > 0 && (
           <div className="search-results">
             <h2>Search Results</h2>
             <div className="image-grid">
               {images.map((image) => (
-                <div 
-                  key={image.name} 
-                  className="image-card" 
+                <div
+                  key={image.name}
+                  className="image-card"
                   onClick={() => handleInspect(image.name)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -462,7 +462,7 @@ function formatBytes(bytes) {
 // Helper function to format Docker commands for better readability
 function formatCommand(command, isExpanded = false) {
   if (!command) return 'Unknown command';
-  
+
   if (isExpanded) {
     // Show full command with proper line breaks for readability
     return command
@@ -472,10 +472,10 @@ function formatCommand(command, isExpanded = false) {
       .replace(/\s+/g, ' ')
       .trim();
   }
-  
+
   // Show truncated version
   if (command.length <= 100) return command;
-  
+
   // Split and show first line with truncation indicator
   const firstLine = command.split(/&&|\|\|/)[0].trim();
   if (firstLine.length > 80) {

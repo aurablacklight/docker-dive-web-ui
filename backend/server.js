@@ -11,6 +11,7 @@ const path = require('path');
 const fs = require('fs');
 const pty = require('node-pty');
 const { validateImageName } = require('./utils/image-name');
+const dockerUtils = require('./utils/docker');
 require('dotenv').config();
 
 // Track active PTY processes for cleanup
@@ -219,44 +220,40 @@ app.use('/search', searchRoutes);
 app.use('/inspect', inspectRoutes);
 app.use('/images', imagesRoutes);
 
+const buildHealthResponse = async () => {
+  let dockerAvailable = false;
+  try {
+    dockerAvailable = await dockerUtils.isDockerAvailable();
+  } catch (error) {
+    dockerAvailable = false;
+  }
+
+  return {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    version: '1.0.0',
+    environment: process.env.NODE_ENV || 'development',
+    system: {
+      memory: {
+        used: process.memoryUsage().heapUsed,
+        total: process.memoryUsage().heapTotal,
+        external: process.memoryUsage().external
+      },
+      platform: process.platform,
+      nodeVersion: process.version,
+      pid: process.pid
+    },
+    docker: {
+      available: dockerAvailable
+    }
+  };
+};
+
 // Health check at root level too since nginx forwards /api/health as /health
 app.get('/health', async (req, res) => {
   try {
-    // Check Docker availability with timeout
-    let dockerAvailable = false;
-    try {
-      // In test environment, assume Docker is available 
-      // (since the CI environment will have Docker)
-      if (process.env.NODE_ENV === 'test') {
-        dockerAvailable = true;
-      } else {
-        const dockerUtils = new (require('./utils/docker'))();
-        dockerAvailable = await dockerUtils.isDockerAvailable();
-      }
-    } catch (error) {
-      dockerAvailable = false;
-    }
-
-    res.json({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      version: '1.0.0',
-      environment: process.env.NODE_ENV || 'development',
-      system: {
-        memory: {
-          used: process.memoryUsage().heapUsed,
-          total: process.memoryUsage().heapTotal,
-          external: process.memoryUsage().external
-        },
-        platform: process.platform,
-        nodeVersion: process.version,
-        pid: process.pid
-      },
-      docker: {
-        available: dockerAvailable
-      }
-    });
+    res.json(await buildHealthResponse());
   } catch (error) {
     res.status(500).json({
       status: 'error',
@@ -274,41 +271,7 @@ app.use('/api/images', imagesRoutes);
 // Add /api/health back for backward compatibility (tests expect this)
 app.get('/api/health', async (req, res) => {
   try {
-    // Check Docker availability with timeout
-    let dockerAvailable = false;
-    try {
-      // In test environment, assume Docker is available 
-      // (since the CI environment will have Docker)
-      if (process.env.NODE_ENV === 'test') {
-        dockerAvailable = true;
-      } else {
-        const dockerUtils = new (require('./utils/docker'))();
-        dockerAvailable = await dockerUtils.isDockerAvailable();
-      }
-    } catch (error) {
-      dockerAvailable = false;
-    }
-
-    res.json({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      version: '1.0.0',
-      environment: process.env.NODE_ENV || 'development',
-      system: {
-        memory: {
-          used: process.memoryUsage().heapUsed,
-          total: process.memoryUsage().heapTotal,
-          external: process.memoryUsage().external
-        },
-        platform: process.platform,
-        nodeVersion: process.version,
-        pid: process.pid
-      },
-      docker: {
-        available: dockerAvailable
-      }
-    });
+    res.json(await buildHealthResponse());
   } catch (error) {
     res.status(500).json({
       status: 'error',

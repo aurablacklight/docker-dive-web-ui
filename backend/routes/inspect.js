@@ -35,9 +35,9 @@ router.get('/health', async (req, res) => {
   try {
     const dockerAvailable = await dockerUtils.isDockerAvailable();
     const diveAvailable = await diveUtils.isDiveAvailable();
-    
+
     const dockerVersion = dockerAvailable ? await dockerUtils.getDockerVersion() : null;
-    
+
     res.json({
       status: dockerAvailable && diveAvailable ? 'healthy' : 'unhealthy',
       dependencies: {
@@ -91,7 +91,7 @@ router.get('/active', async (req, res) => {
 router.get(/^\/(.+?)\/status\/?$/, async (req, res) => {
   try {
     const imageName = req.params[0]; // Get the captured group from regex
-    
+
     if (!imageName || imageName.trim().length === 0) {
       return res.status(400).json({
         error: 'Image name is required for status check',
@@ -101,7 +101,7 @@ router.get(/^\/(.+?)\/status\/?$/, async (req, res) => {
 
     const decodedImageName = decodeURIComponent(imageName);
     const progress = inspectionProgress.get(decodedImageName);
-    
+
     if (!progress) {
       return res.status(404).json({
         error: 'No inspection in progress for this image',
@@ -145,7 +145,7 @@ router.delete('/:imageName*',
 
       const decodedImageName = decodeURIComponent(imageName);
       const progress = inspectionProgress.get(decodedImageName);
-      
+
       if (!progress) {
         return res.status(404).json({
           error: 'No inspection in progress for this image',
@@ -155,7 +155,7 @@ router.delete('/:imageName*',
 
       // Remove from progress tracking
       inspectionProgress.delete(decodedImageName);
-      
+
       // Notify via WebSocket
       const inspectionSockets = req.app.get('inspectionSockets');
       const socket = inspectionSockets.get(decodedImageName);
@@ -191,7 +191,7 @@ router.post('/:imageName*',
   async (req, res) => {
     try {
       const decodedImageName = getImageNameFromRequest(req);
-      
+
       if (!decodedImageName) {
         return res.status(400).json({
           error: 'Image name is required',
@@ -207,14 +207,14 @@ router.post('/:imageName*',
           message: validation.reason
         });
       }
-      
+
       console.log(`Starting inspection for image: ${decodedImageName}`);
-      
+
       // Get WebSocket connections for real-time updates
       const io = req.app.get('io');
       const inspectionSockets = req.app.get('inspectionSockets');
       const socket = inspectionSockets.get(decodedImageName);
-      
+
       // Initialize progress tracking
       inspectionProgress.set(decodedImageName, {
         status: 'starting',
@@ -230,7 +230,7 @@ router.post('/:imageName*',
           ...update,
           lastUpdate: new Date()
         });
-        
+
         // Send real-time update via WebSocket
         if (socket) {
           socket.emit('inspection-update', {
@@ -260,7 +260,7 @@ router.post('/:imageName*',
       });
 
       const imageExists = await dockerUtils.imageExists(decodedImageName);
-      
+
       if (!imageExists) {
         progressCallback({
           status: 'pulling',
@@ -313,9 +313,9 @@ router.post('/:imageName*',
 
     } catch (error) {
       console.error(`Inspection error for ${req.params.imageName}:`, error);
-      
+
       const decodedImageName = getImageNameFromRequest(req);
-      
+
       // Update progress with error
       inspectionProgress.set(decodedImageName, {
         status: 'error',

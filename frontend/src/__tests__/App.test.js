@@ -29,21 +29,21 @@ describe('App Component', () => {
     const mockSearchResults = [
       { name: 'test-image', description: 'Test image description' }
     ];
-    
+
     api.searchImages.mockResolvedValue(mockSearchResults);
-    
+
     render(<App />);
-    
+
     const searchInput = screen.getByPlaceholderText(/search for docker images/i);
     const searchButton = screen.getByRole('button', { name: /search/i });
-    
+
     await user.type(searchInput, 'test');
     await user.click(searchButton);
-    
+
     await waitFor(() => {
       expect(api.searchImages).toHaveBeenCalledWith('test');
     });
-    
+
     await waitFor(() => {
       expect(screen.getByText('test-image')).toBeInTheDocument();
     });
@@ -51,15 +51,15 @@ describe('App Component', () => {
 
   test('clear search button works', async () => {
     const user = userEvent.setup();
-    
+
     render(<App />);
-    
+
     const searchInput = screen.getByPlaceholderText(/search for docker images/i);
     const clearButton = screen.getByRole('button', { name: /clear/i });
-    
+
     await user.type(searchInput, 'test query');
     expect(searchInput.value).toBe('test query');
-    
+
     await user.click(clearButton);
     expect(searchInput.value).toBe('');
   });
@@ -74,14 +74,14 @@ describe('App Component', () => {
         ]
       }
     };
-    
+
     api.inspectImage.mockResolvedValue(mockInspectionData);
-    
+
     render(<App />);
-    
+
     const inspectButton = screen.getAllByText(/pull and inspect/i)[0];
     await user.click(inspectButton);
-    
+
     await waitFor(() => {
       expect(api.inspectImage).toHaveBeenCalled();
     });
@@ -97,14 +97,14 @@ describe('App Component', () => {
         ]
       }
     };
-    
+
     api.inspectImage.mockResolvedValue(mockInspectionData);
     api.removeImage.mockResolvedValue({ success: true, imageName: 'nginx:latest' });
-    
+
     global.confirm = jest.fn(() => true);
-    
+
     render(<App />);
-    
+
     const inspectButton = screen.getAllByText(/pull and inspect/i)[0];
     await user.click(inspectButton);
 
@@ -114,7 +114,7 @@ describe('App Component', () => {
 
     const deleteButton = screen.getByRole('button', { name: /delete image/i });
     await user.click(deleteButton);
-    
+
     await waitFor(() => {
       expect(api.removeImage).toHaveBeenCalledWith('nginx');
       expect(global.confirm).toHaveBeenCalledWith(
@@ -134,38 +134,38 @@ describe('App Component', () => {
         ]
       }
     };
-    
+
     api.inspectImage.mockResolvedValue(mockInspectionData);
     global.confirm = jest.fn(() => false);
-    
+
     render(<App />);
 
     const inspectButton = screen.getAllByText(/pull and inspect/i)[0];
     await user.click(inspectButton);
-    
+
     await waitFor(() => {
       expect(screen.getByText(/analyzing: nginx/i)).toBeInTheDocument();
     });
 
     const deleteButton = screen.getByRole('button', { name: /delete image/i });
     await user.click(deleteButton);
-    
+
     expect(api.removeImage).not.toHaveBeenCalled();
   });
 
   test('handles search errors gracefully', async () => {
     const user = userEvent.setup();
-    
+
     api.searchImages.mockRejectedValue(new Error('Network error'));
-    
+
     render(<App />);
-    
+
     const searchInput = screen.getByPlaceholderText(/search for docker images/i);
     const searchButton = screen.getByRole('button', { name: /search/i });
-    
+
     await user.type(searchInput, 'test');
     await user.click(searchButton);
-    
+
     await waitFor(() => {
       expect(screen.getByText(/search failed: network error/i)).toBeInTheDocument();
     });
@@ -173,14 +173,14 @@ describe('App Component', () => {
 
   test('handles inspect errors gracefully', async () => {
     const user = userEvent.setup();
-    
+
     api.inspectImage.mockRejectedValue(new Error('Inspection failed'));
-    
+
     render(<App />);
-    
+
     const inspectButton = screen.getAllByText(/pull and inspect/i)[0];
     await user.click(inspectButton);
-    
+
     await waitFor(() => {
       expect(screen.getByText(/inspection failed: inspection failed/i)).toBeInTheDocument();
     });
@@ -188,18 +188,18 @@ describe('App Component', () => {
 
   test('loading states work correctly', async () => {
     const user = userEvent.setup();
-    
+
     // Make searchImages hang
     api.searchImages.mockImplementation(() => new Promise(() => {}));
-    
+
     render(<App />);
-    
+
     const searchInput = screen.getByPlaceholderText(/search for docker images/i);
     const searchButton = screen.getByRole('button', { name: /search/i });
-    
+
     await user.type(searchInput, 'test');
     await user.click(searchButton);
-    
+
     expect(screen.getByText(/searching for images/i)).toBeInTheDocument();
   });
 });

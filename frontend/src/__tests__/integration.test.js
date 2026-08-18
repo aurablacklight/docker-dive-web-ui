@@ -14,12 +14,12 @@ describe('App Integration Tests', () => {
 
   test('complete search and inspect workflow', async () => {
     const user = userEvent.setup();
-    
+
     // Mock search results
     const searchResults = [
       { name: 'nginx:latest', description: 'Official nginx image' }
     ];
-    
+
     // Mock inspection data
     const inspectionData = {
       analysis: {
@@ -54,71 +54,71 @@ describe('App Integration Tests', () => {
         ]
       }
     };
-    
+
     api.searchImages.mockResolvedValue(searchResults);
     api.inspectImage.mockResolvedValue(inspectionData);
-    
+
     render(<App />);
-    
+
     // Step 1: Search for an image
     const searchInput = screen.getByPlaceholderText(/search for docker images/i);
     const searchButton = screen.getByRole('button', { name: /search/i });
-    
+
     await user.type(searchInput, 'nginx');
     await user.click(searchButton);
-    
+
     // Wait for search results
     await waitFor(() => {
       expect(screen.getByText('nginx:latest')).toBeInTheDocument();
     });
-    
+
     // Step 2: Inspect the image
     const inspectButton = screen.getByText(/pull and inspect/i);
     await user.click(inspectButton);
-    
+
     // Wait for inspection to complete
     await waitFor(() => {
       expect(screen.getByText(/analyzing: nginx:latest/i)).toBeInTheDocument();
     });
-    
+
     // Check that inspection data is displayed
     await waitFor(() => {
       expect(screen.getByText('3')).toBeInTheDocument(); // Total layers
       expect(screen.getByText('47.7 MB')).toBeInTheDocument(); // Total size
       expect(screen.getByText('4.8 MB')).toBeInTheDocument(); // Wasted space
     });
-    
+
     // Check that layers are displayed
     expect(screen.getByText('#1')).toBeInTheDocument();
     expect(screen.getByText('#2')).toBeInTheDocument();
     expect(screen.getByText('#3')).toBeInTheDocument();
-    
+
     // Step 3: Test terminal toggle
     const terminalButton = screen.getByText(/💻 interactive terminal/i);
     await user.click(terminalButton);
-    
+
     // Should show terminal view
     await waitFor(() => {
       expect(screen.getByText(/interactive dive terminal - nginx:latest/i)).toBeInTheDocument();
     });
-    
+
     // Should have terminal controls
     expect(screen.getByText('Exit')).toBeInTheDocument();
     expect(screen.getByText('Resize')).toBeInTheDocument();
-    
+
     // Step 4: Switch back to analysis
     const analysisButton = screen.getByText(/📊 show analysis/i);
     await user.click(analysisButton);
-    
+
     // Should show analysis again
     await waitFor(() => {
       expect(screen.getByText('Total Layers')).toBeInTheDocument();
     });
-    
+
     // Step 5: Go back to search
     const backButton = screen.getByText(/← back to search/i);
     await user.click(backButton);
-    
+
     // Should be back at search view
     await waitFor(() => {
       expect(screen.getByText(/dive docker image inspector/i)).toBeInTheDocument();
@@ -127,38 +127,38 @@ describe('App Integration Tests', () => {
 
   test('error handling throughout the workflow', async () => {
     const user = userEvent.setup();
-    
+
     // Mock search error
     api.searchImages.mockRejectedValue(new Error('Search service unavailable'));
-    
+
     render(<App />);
-    
+
     const searchInput = screen.getByPlaceholderText(/search for docker images/i);
     const searchButton = screen.getByRole('button', { name: /search/i });
-    
+
     await user.type(searchInput, 'nginx');
     await user.click(searchButton);
-    
+
     // Should show error
     await waitFor(() => {
       expect(screen.getByText(/search failed: search service unavailable/i)).toBeInTheDocument();
     });
-    
+
     // Test inspection error
     api.searchImages.mockResolvedValue([{ name: 'nginx', description: 'nginx' }]);
     api.inspectImage.mockRejectedValue(new Error('Inspection failed'));
-    
+
     await user.clear(searchInput);
     await user.type(searchInput, 'nginx');
     await user.click(searchButton);
-    
+
     await waitFor(() => {
       expect(screen.getByText('nginx')).toBeInTheDocument();
     });
-    
+
     const inspectButton = screen.getByText(/pull and inspect/i);
     await user.click(inspectButton);
-    
+
     await waitFor(() => {
       expect(screen.getByText(/inspection failed: inspection failed/i)).toBeInTheDocument();
     });
@@ -187,7 +187,7 @@ describe('App Integration Tests', () => {
     };
     api.inspectImage.mockResolvedValue(inspectionData);
     api.removeImage.mockResolvedValue({ success: true, imageName: 'ghcr.io/owner/repo:tag' });
-    
+
     render(<App />);
 
     api.searchImages.mockResolvedValue([
@@ -202,14 +202,14 @@ describe('App Integration Tests', () => {
     await waitFor(() => {
       expect(screen.getByText('ghcr.io/owner/repo:tag')).toBeInTheDocument();
     });
-    
+
     const inspectButtons = screen.getAllByText(/pull and inspect/i);
     await user.click(inspectButtons[inspectButtons.length - 1]);
 
     await waitFor(() => {
       expect(screen.getByText(/analyzing: ghcr.io\/owner\/repo:tag/i)).toBeInTheDocument();
     });
-    
+
     const deleteButton = screen.getByRole('button', { name: /delete image/i });
     await user.click(deleteButton);
 
@@ -220,12 +220,12 @@ describe('App Integration Tests', () => {
       );
       expect(screen.getByText(/deleted ghcr.io\/owner\/repo:tag from this docker dive host/i)).toBeInTheDocument();
     });
-    
+
     global.confirm = jest.fn(() => false);
     jest.clearAllMocks();
-    
+
     await user.click(deleteButton);
-    
+
     expect(api.removeImage).not.toHaveBeenCalled();
   });
 });
