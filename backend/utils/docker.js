@@ -169,6 +169,41 @@ class DockerUtils {
   }
 
   /**
+   * Load an image from a tarball into the Docker daemon
+   * @param {string} filePath - Server-controlled path to the tar archive
+   * @returns {Promise<Object>} Load result with parsed image refs and IDs
+   */
+  async loadImage(filePath) {
+    try {
+      const { stdout } = await execFileAsync(this.dockerCommand, ['load', '-i', filePath]);
+
+      const loadedImages = [];
+      const loadedImageIds = [];
+      stdout.split('\n').forEach((line) => {
+        const refMatch = line.match(/^Loaded image: (.+)$/);
+        if (refMatch) {
+          loadedImages.push(refMatch[1].trim());
+          return;
+        }
+        const idMatch = line.match(/^Loaded image ID: (.+)$/);
+        if (idMatch) {
+          loadedImageIds.push(idMatch[1].trim());
+        }
+      });
+
+      return {
+        success: true,
+        loadedImages,
+        loadedImageIds,
+        output: stdout
+      };
+    } catch (error) {
+      console.error(`Failed to load image from ${filePath}:`, error);
+      throw new Error(`Failed to load image: ${error.message}`);
+    }
+  }
+
+  /**
    * Get detailed information about an image
    * @param {string} imageName - Name of the image
    * @returns {Promise<Object>} Image information

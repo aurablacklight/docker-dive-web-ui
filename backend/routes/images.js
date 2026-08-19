@@ -1,8 +1,51 @@
 const express = require('express');
+const path = require('path');
+const fsp = require('fs').promises;
+const fs = require('fs-extra');
+const multer = require('multer');
+const { v4: uuidv4 } = require('uuid');
 const dockerUtils = require('../utils/docker');
 const { validateImageName } = require('../utils/image-name');
 
 const router = express.Router();
+
+const uploadsDir = path.join(__dirname, '..', 'temp', 'uploads');
+fs.ensureDirSync(uploadsDir);
+
+const parseUploadMaxBytes = () => {
+  const parsed = parseInt(process.env.UPLOAD_MAX_BYTES, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1024 * 1024 * 1024;
+};
+const UPLOAD_MAX_BYTES = parseUploadMaxBytes();
+
+const uploadMiddleware = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadsDir),
+    filename: (req, file, cb) => cb(null, `upload-${uuidv4()}.tar`)
+  }),
+  limits: { fileSize: UPLOAD_MAX_BYTES }
+}).single('image');
+
+const XZ_MAGIC = Buffer.from([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]);
+
+// docker load accepts plain tar plus gzip/bzip2/xz/zstd compressed tars
+const isTarArchive = async (filePath) => {
+  const header = Buffer.alloc(262);
+  const handle = await fsp.open(filePath, 'r');
+  let bytesRead;
+  try {
+    ({ bytesRead } = await handle.read(header, 0, 262, 0));
+  } finally {
+    await handle.close();
+  }
+
+  if (bytesRead >= 2 && header[0] === 0x1f && header[1] === 0x8b) return true;
+  if (bytesRead >= 3 && header.toString('latin1', 0, 3) === 'BZh') return true;
+  if (bytesRead >= 6 && header.subarray(0, 6).equals(XZ_MAGIC)) return true;
+  if (bytesRead >= 4 && header.readUInt32LE(0) === 0xfd2fb528) return true;
+  if (bytesRead >= 262 && header.toString('latin1', 257, 262) === 'ustar') return true;
+  return false;
+};
 
 const sendInvalidImageName = (res, imageName) => res.status(400).json({
   error: 'Invalid image name',
@@ -31,6 +74,80 @@ router.get('/local', async (req, res) => {
       message: error.message
     });
   }
+});
+
+/**
+ * POST /api/images/upload
+ * Upload a docker save tarball and load it into the Docker daemon
+ */
+router.post('/upload', (req, res) => {
+  uploadMiddleware(req, res, async (multerError) => {
+    const tempPath = req.file ? req.file.path : null;
+    let status = 200;
+    let payload = null;
+
+    try {
+      if (multerError) {
+        if (multerError.code === 'LIMIT_FILE_SIZE') {
+          status = 413;
+          payload = {
+            error: 'File too large',
+            message: `Uploads are limited to ${UPLOAD_MAX_BYTES} bytes`
+          };
+        } else {
+          status = 400;
+          payload = {
+            error: 'Upload failed',
+            message: multerError.message
+          };
+        }
+      } else if (!req.file) {
+        status = 400;
+        payload = {
+          error: 'No image file uploaded',
+          message: 'Attach a docker save tarball as multipart field "image"'
+        };
+      } else if (!(await isTarArchive(tempPath))) {
+        status = 400;
+        payload = {
+          error: 'Invalid file type',
+          message: 'File is not a tar archive or compressed tar archive'
+        };
+      } else if (!(await dockerUtils.isDockerAvailable())) {
+        status = 503;
+        payload = {
+          error: 'Docker is not available or not accessible'
+        };
+      } else {
+        console.log(`Loading uploaded image tarball: ${tempPath}`);
+        const result = await dockerUtils.loadImage(tempPath);
+        payload = {
+          success: true,
+          loadedImages: result.loadedImages,
+          loadedImageIds: result.loadedImageIds,
+          output: result.output,
+          uploadedAt: new Date().toISOString()
+        };
+      }
+    } catch (error) {
+      console.error('Upload image error:', error);
+      status = 502;
+      payload = {
+        error: 'Failed to load image',
+        message: error.message
+      };
+    } finally {
+      if (tempPath) {
+        try {
+          await fs.remove(tempPath);
+        } catch (cleanupError) {
+          console.error(`Failed to remove uploaded temp file ${tempPath}:`, cleanupError);
+        }
+      }
+    }
+
+    res.status(status).json(payload);
+  });
 });
 
 /**

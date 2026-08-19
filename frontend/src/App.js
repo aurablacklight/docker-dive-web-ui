@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { inspectImage, searchImages, removeImage } from './services/api';
+import React, { useState, useEffect, useCallback } from 'react';
+import { inspectImage, searchImages, removeImage, getLocalImages } from './services/api';
 import TerminalView from './components/TerminalView';
+import ImageUpload from './components/ImageUpload';
 import './styles/simple.css';
 
 function App() {
@@ -16,6 +17,27 @@ function App() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteMessage, setDeleteMessage] = useState('');
   const [showTerminal, setShowTerminal] = useState(false);
+  const [localImages, setLocalImages] = useState([]);
+  const [recentlyUploaded, setRecentlyUploaded] = useState([]);
+
+  const fetchLocalImages = useCallback(async () => {
+    try {
+      const images = await getLocalImages();
+      setLocalImages(images.filter((image) => image.repository !== '<none>'));
+    } catch (err) {
+      // Informational section only - stay quiet on failure
+      console.error('Failed to fetch local images:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLocalImages();
+  }, [fetchLocalImages]);
+
+  const handleUploaded = (loadedImages) => {
+    setRecentlyUploaded(loadedImages || []);
+    fetchLocalImages();
+  };
 
   // Popular images to show by default
   const popularImages = [
@@ -391,6 +413,46 @@ function App() {
         {error && (
           <div className="error-message">
             <p>{error}</p>
+          </div>
+        )}
+
+        <ImageUpload onUploaded={handleUploaded} onInspect={handleInspect} />
+
+        {localImages.length > 0 && (
+          <div className="local-section">
+            <h2>💾 Local Images</h2>
+            <div className="image-grid">
+              {[...localImages]
+                .sort((a, b) => {
+                  const aUploaded = recentlyUploaded.includes(a.name) ? 0 : 1;
+                  const bUploaded = recentlyUploaded.includes(b.name) ? 0 : 1;
+                  return aUploaded - bUploaded;
+                })
+                .map((image) => (
+                  <div
+                    key={image.id + image.name}
+                    className="image-card"
+                    onClick={() => handleInspect(image.name)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleInspect(image.name);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <h3>
+                      {image.name}
+                      {recentlyUploaded.includes(image.name) && (
+                        <span className="just-uploaded-badge">Just uploaded</span>
+                      )}
+                    </h3>
+                    <p>{image.size} · {image.created}</p>
+                    <button className="inspect-button">Inspect</button>
+                  </div>
+                ))}
+            </div>
           </div>
         )}
 

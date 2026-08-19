@@ -134,6 +134,35 @@ export const getLocalImages = async () => {
 };
 
 /**
+ * Upload a local docker save tarball and load it into the Docker daemon
+ * @param {File} file - The tarball selected by the user
+ * @param {Function} [onProgress] - Called with an integer 0-100 upload percent
+ * @returns {Promise<Object>} Load result with loadedImages / loadedImageIds
+ */
+export const uploadImage = async (file, onProgress) => {
+  try {
+    const formData = new FormData();
+    formData.append('image', file);
+
+    // Content-Type is intentionally not set: the browser adds the multipart
+    // boundary itself.
+    const response = await api.post('/images/upload', formData, {
+      timeout: 600000, // 10 minutes for large tarball uploads + docker load
+      onUploadProgress: (progressEvent) => {
+        if (!onProgress || !progressEvent.total) return;
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        onProgress(percent);
+      },
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error('Upload image error:', error);
+    throw error;
+  }
+};
+
+/**
  * Remove a local Docker image
  * @param {string} imageName - Name of the image to remove
  * @returns {Promise<Object>} Remove result

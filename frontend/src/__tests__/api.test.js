@@ -3,7 +3,7 @@ jest.mock('axios');
 
 const axios = require('axios').default || require('axios');
 const { mockAxiosInstance } = require('../__mocks__/axios');
-const { searchImages, inspectImage, removeImage } = require('../services/api');
+const { searchImages, inspectImage, removeImage, uploadImage } = require('../services/api');
 
 describe('API Service', () => {
   beforeEach(() => {
@@ -120,6 +120,89 @@ describe('API Service', () => {
       mockAxiosInstance.delete.mockRejectedValue(new Error(errorMessage));
 
       await expect(removeImage('nginx:latest')).rejects.toThrow(errorMessage);
+    });
+  });
+
+  describe('uploadImage', () => {
+    const makeFile = () =>
+      new File(['tarball'], 'myimage.tar', { type: 'application/x-tar' });
+
+    test('posts FormData with the image field to /images/upload', async () => {
+      const mockResponse = {
+        data: {
+          success: true,
+          loadedImages: ['myimage:latest'],
+          loadedImageIds: []
+        }
+      };
+
+      mockAxiosInstance.post.mockResolvedValue(mockResponse);
+
+      const result = await uploadImage(makeFile());
+
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+        '/images/upload',
+        expect.any(FormData),
+        expect.objectContaining({
+          timeout: 600000,
+          onUploadProgress: expect.any(Function)
+        })
+      );
+
+      const formData = mockAxiosInstance.post.mock.calls[0][1];
+      expect(formData.get('image')).toBeInstanceOf(File);
+      expect(formData.get('image').name).toBe('myimage.tar');
+      expect(result).toEqual(mockResponse.data);
+    });
+
+    test('does not set Content-Type manually', async () => {
+      mockAxiosInstance.post.mockResolvedValue({ data: {} });
+
+      await uploadImage(makeFile());
+
+      const config = mockAxiosInstance.post.mock.calls[0][2];
+      expect(config.headers).toBeUndefined();
+    });
+
+    test('reports upload progress as an integer percent', async () => {
+      mockAxiosInstance.post.mockResolvedValue({ data: {} });
+      const onProgress = jest.fn();
+
+      await uploadImage(makeFile(), onProgress);
+
+      const { onUploadProgress } = mockAxiosInstance.post.mock.calls[0][2];
+
+      onUploadProgress({ loaded: 25, total: 100 });
+      onUploadProgress({ loaded: 700, total: 1024 });
+      onUploadProgress({ loaded: 1024, total: 1024 });
+
+      expect(onProgress).toHaveBeenNthCalledWith(1, 25);
+      expect(onProgress).toHaveBeenNthCalledWith(2, 68);
+      expect(onProgress).toHaveBeenNthCalledWith(3, 100);
+      expect(
+        onProgress.mock.calls.every(([percent]) => Number.isInteger(percent))
+      ).toBe(true);
+    });
+
+    test('tolerates progress events with no total and a missing callback', async () => {
+      mockAxiosInstance.post.mockResolvedValue({ data: {} });
+      const onProgress = jest.fn();
+
+      await uploadImage(makeFile(), onProgress);
+      const withCallback = mockAxiosInstance.post.mock.calls[0][2].onUploadProgress;
+      expect(() => withCallback({ loaded: 10 })).not.toThrow();
+      expect(onProgress).not.toHaveBeenCalled();
+
+      await uploadImage(makeFile());
+      const withoutCallback = mockAxiosInstance.post.mock.calls[1][2].onUploadProgress;
+      expect(() => withoutCallback({ loaded: 50, total: 100 })).not.toThrow();
+    });
+
+    test('handles upload errors', async () => {
+      const errorMessage = '502: Failed to load image';
+      mockAxiosInstance.post.mockRejectedValue(new Error(errorMessage));
+
+      await expect(uploadImage(makeFile())).rejects.toThrow(errorMessage);
     });
   });
 });

@@ -54,6 +54,42 @@ describe('Docker utils subprocess hardening', () => {
     expect(childProcess.exec).not.toHaveBeenCalled();
   });
 
+  test('loadImage uses execFile argv array with the given file path', async () => {
+    mockExecFileSuccess('Loaded image: myapp:1.0\n');
+
+    await dockerUtils.loadImage('/app/temp/uploads/upload-abc.tar');
+
+    expect(childProcess.execFile).toHaveBeenCalledWith(
+      'docker',
+      ['load', '-i', '/app/temp/uploads/upload-abc.tar'],
+      expect.any(Function)
+    );
+    expect(childProcess.exec).not.toHaveBeenCalled();
+    expect(childProcess.spawn).not.toHaveBeenCalled();
+  });
+
+  test('loadImage parses loaded image refs and IDs from stdout', async () => {
+    mockExecFileSuccess(
+      'Loaded image: myapp:1.0\nLoaded image: myapp:latest\nLoaded image ID: sha256:abcdef1234\n'
+    );
+
+    const result = await dockerUtils.loadImage('/tmp/x.tar');
+
+    expect(result.success).toBe(true);
+    expect(result.loadedImages).toEqual(['myapp:1.0', 'myapp:latest']);
+    expect(result.loadedImageIds).toEqual(['sha256:abcdef1234']);
+  });
+
+  test('loadImage surfaces docker failure as an error', async () => {
+    childProcess.execFile.mockImplementation((file, args, callback) => {
+      callback(new Error('invalid tar header'), '', '');
+    });
+
+    await expect(dockerUtils.loadImage('/tmp/bad.tar')).rejects.toThrow(
+      'Failed to load image: invalid tar header'
+    );
+  });
+
   test.each(['alpine;id', 'alpine && id', '$(id)', '`id`', '--help', 'name with spaces', 'name\nother'])(
     'rejects invalid image %j before subprocess',
     async (imageName) => {

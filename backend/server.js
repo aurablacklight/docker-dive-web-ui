@@ -310,6 +310,7 @@ if (process.env.NODE_ENV === 'production') {
         inspect: '/api/inspect/<imageName>',
         images: '/api/images/local',
         pull: '/api/images/pull',
+        upload: '/api/images/upload',
         websocket: '/ws/inspect'
       }
     });

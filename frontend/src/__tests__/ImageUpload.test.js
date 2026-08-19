@@ -1,0 +1,184 @@
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import ImageUpload from '../components/ImageUpload';
+import { uploadImage } from '../services/api';
+
+// Mock only the API surface this component uses; the real module (and the axios
+// harness behind it) is never loaded here.
+jest.mock('../services/api', () => ({
+  uploadImage: jest.fn(),
+}));
+
+const makeFile = (name = 'myimage.tar', size = null) => {
+  const file = new File(['tarball'], name, { type: 'application/x-tar' });
+  if (size !== null) {
+    Object.defineProperty(file, 'size', { value: size });
+  }
+  return file;
+};
+
+describe('ImageUpload Component', () => {
+  const mockProps = {
+    onUploaded: jest.fn(),
+    onInspect: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('renders the upload card, file chooser and helper line', () => {
+    render(<ImageUpload {...mockProps} />);
+
+    expect(screen.getByText('📤 Upload Local Image')).toBeInTheDocument();
+    expect(screen.getByText('Choose file…')).toBeInTheDocument();
+    expect(screen.getByText(/max 1 GB/)).toBeInTheDocument();
+    expect(screen.getByText(/may fail through Cloudflare/)).toBeInTheDocument();
+    expect(screen.getByText('docker save myimage:tag -o myimage.tar')).toBeInTheDocument();
+  });
+
+  test('file input accepts docker save tarball extensions', () => {
+    render(<ImageUpload {...mockProps} />);
+
+    expect(screen.getByLabelText('Choose file…')).toHaveAttribute(
+      'accept',
+      '.tar,.tar.gz,.tgz,.tar.bz2,.tar.xz,.tar.zst'
+    );
+  });
+
+  test('selecting a file shows its name and human readable size', async () => {
+    const user = userEvent.setup();
+    render(<ImageUpload {...mockProps} />);
+
+    await user.upload(screen.getByLabelText('Choose file…'), makeFile('myimage.tar', 2048));
+
+    expect(screen.getByText('myimage.tar (2 KB)')).toBeInTheDocument();
+  });
+
+  test('dropping a file onto the card selects it', () => {
+    render(<ImageUpload {...mockProps} />);
+
+    fireEvent.drop(screen.getByTestId('image-upload-card'), {
+      dataTransfer: { files: [makeFile('dropped.tar', 1024)] },
+    });
+
+    expect(screen.getByText('dropped.tar (1 KB)')).toBeInTheDocument();
+  });
+
+  test('successful upload reports refs, renders them and wires Inspect', async () => {
+    const user = userEvent.setup();
+    uploadImage.mockResolvedValue({
+      success: true,
+      loadedImages: ['myimage:latest'],
+      loadedImageIds: [],
+    });
+
+    render(<ImageUpload {...mockProps} />);
+
+    await user.upload(screen.getByLabelText('Choose file…'), makeFile());
+    await user.click(screen.getByRole('button', { name: /^upload$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Loaded: myimage:latest')).toBeInTheDocument();
+    });
+
+    expect(uploadImage).toHaveBeenCalledTimes(1);
+    expect(uploadImage.mock.calls[0][0]).toBeInstanceOf(File);
+    expect(typeof uploadImage.mock.calls[0][1]).toBe('function');
+    expect(mockProps.onUploaded).toHaveBeenCalledWith(['myimage:latest']);
+
+    await user.click(screen.getByRole('button', { name: 'Inspect' }));
+    expect(mockProps.onInspect).toHaveBeenCalledWith('myimage:latest');
+
+    // Selection is cleared after a successful upload
+    expect(screen.queryByText(/myimage\.tar \(/)).not.toBeInTheDocument();
+  });
+
+  test('falls back to loadedImageIds when loadedImages is empty', async () => {
+    const user = userEvent.setup();
+    uploadImage.mockResolvedValue({
+      success: true,
+      loadedImages: [],
+      loadedImageIds: ['sha256:abc123'],
+    });
+
+    render(<ImageUpload {...mockProps} />);
+
+    await user.upload(screen.getByLabelText('Choose file…'), makeFile());
+    await user.click(screen.getByRole('button', { name: /^upload$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Loaded: sha256:abc123')).toBeInTheDocument();
+    });
+  });
+
+  test('shows progress percent, then "Loading into Docker…" after 100%', async () => {
+    const user = userEvent.setup();
+    let reportProgress;
+    let finishUpload;
+    uploadImage.mockImplementation((file, onProgress) => {
+      reportProgress = onProgress;
+      return new Promise((resolve) => {
+        finishUpload = resolve;
+      });
+    });
+
+    render(<ImageUpload {...mockProps} />);
+
+    await user.upload(screen.getByLabelText('Choose file…'), makeFile());
+    await user.click(screen.getByRole('button', { name: /^upload$/i }));
+
+    act(() => reportProgress(42));
+    expect(screen.getByText('42%')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '42');
+
+    act(() => reportProgress(100));
+    expect(screen.getByText('Loading into Docker…')).toBeInTheDocument();
+
+    await act(async () => {
+      finishUpload({ success: true, loadedImages: ['done:latest'], loadedImageIds: [] });
+    });
+
+    expect(screen.getByText('Loaded: done:latest')).toBeInTheDocument();
+    expect(screen.queryByText('Loading into Docker…')).not.toBeInTheDocument();
+  });
+
+  test('failed upload renders the error and keeps the file selected', async () => {
+    const user = userEvent.setup();
+    uploadImage.mockRejectedValue(new Error('502: Failed to load image'));
+
+    render(<ImageUpload {...mockProps} />);
+
+    await user.upload(screen.getByLabelText('Choose file…'), makeFile('myimage.tar', 2048));
+    await user.click(screen.getByRole('button', { name: /^upload$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('502: Failed to load image')).toBeInTheDocument();
+    });
+
+    expect(mockProps.onUploaded).not.toHaveBeenCalled();
+    // File stays selected so the user can retry
+    expect(screen.getByText('myimage.tar (2 KB)')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^upload$/i })).toBeEnabled();
+  });
+
+  test('rejects files over 1 GiB locally without sending a request', async () => {
+    const user = userEvent.setup();
+    render(<ImageUpload {...mockProps} />);
+
+    await user.upload(
+      screen.getByLabelText('Choose file…'),
+      makeFile('huge.tar', 1024 * 1024 * 1024 + 1)
+    );
+    await user.click(screen.getByRole('button', { name: /^upload$/i }));
+
+    expect(await screen.findByText(/too large/i)).toBeInTheDocument();
+    expect(uploadImage).not.toHaveBeenCalled();
+  });
+
+  test('upload button is disabled until a file is selected', () => {
+    render(<ImageUpload {...mockProps} />);
+
+    expect(screen.getByRole('button', { name: /^upload$/i })).toBeDisabled();
+  });
+});
