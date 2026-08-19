@@ -870,9 +870,22 @@ body {
   margin-top: 0.75rem;
 }
 
+.upload-untagged-hint {
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  opacity: 0.8;
+  line-height: 1.5;
+}
+
+.upload-untagged-hint code {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
 /* "Just uploaded" badge on a local image card */
-.just-uploaded-badge,
-.image-card .just-uploaded {
+.just-uploaded-badge {
   background: rgba(99, 102, 241, 0.25);
   color: #c7d2fe;
   padding: 0.25rem 0.5rem;

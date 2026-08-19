@@ -1,3 +1,5 @@
+// The production babel config (.babelrc) uses the classic JSX runtime, which
+// requires React in scope; only the test env uses the automatic runtime.
 import React, { useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { uploadImage } from '../services/api';
@@ -41,6 +43,9 @@ const ImageUpload = ({ onUploaded, onInspect }) => {
   };
 
   const handleDragOver = (e) => {
+    // Not preventing the default keeps the browser's "no drop" cursor while an
+    // upload is in flight, matching the disabled file input.
+    if (uploading) return;
     e.preventDefault();
     setDragActive(true);
   };
@@ -53,6 +58,9 @@ const ImageUpload = ({ onUploaded, onInspect }) => {
   const handleDrop = (e) => {
     e.preventDefault();
     setDragActive(false);
+    // A drop mid-upload would be silently discarded by clearSelection() when the
+    // in-flight request resolves, so ignore it entirely.
+    if (uploading) return;
     selectFile(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
   };
 
@@ -91,6 +99,11 @@ const ImageUpload = ({ onUploaded, onInspect }) => {
       setUploading(false);
     }
   };
+
+  // Bare image IDs are rejected by the backend image-name validator and never
+  // appear in the Local Images list, so they get a retag hint instead of Inspect.
+  const inspectableRefs = loadedRefs.filter((ref) => !ref.startsWith('sha256:'));
+  const untaggedRefs = loadedRefs.filter((ref) => ref.startsWith('sha256:'));
 
   return (
     <div
@@ -158,18 +171,26 @@ const ImageUpload = ({ onUploaded, onInspect }) => {
       {loadedRefs.length > 0 && (
         <div className="upload-success">
           <p className="upload-success-text">{`Loaded: ${loadedRefs.join(', ')}`}</p>
-          <div className="upload-success-actions">
-            {loadedRefs.map((ref) => (
-              <button
-                key={ref}
-                type="button"
-                className="btn-secondary"
-                onClick={() => onInspect(ref)}
-              >
-                Inspect
-              </button>
-            ))}
-          </div>
+          {inspectableRefs.length > 0 && (
+            <div className="upload-success-actions">
+              {inspectableRefs.map((ref) => (
+                <button
+                  key={ref}
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => onInspect(ref)}
+                >
+                  Inspect
+                </button>
+              ))}
+            </div>
+          )}
+          {untaggedRefs.map((ref) => (
+            <p className="upload-untagged-hint" key={ref}>
+              Untagged image — run <code>{`docker tag ${ref} myname:tag`}</code> locally and
+              re-save to inspect it here.
+            </p>
+          ))}
         </div>
       )}
     </div>

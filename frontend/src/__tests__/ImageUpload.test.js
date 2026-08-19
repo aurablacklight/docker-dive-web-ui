@@ -90,8 +90,31 @@ describe('ImageUpload Component', () => {
     await user.click(screen.getByRole('button', { name: 'Inspect' }));
     expect(mockProps.onInspect).toHaveBeenCalledWith('myimage:latest');
 
+    // Tagged refs are inspectable, so no untagged hint is shown
+    expect(screen.queryByText(/Untagged image/)).not.toBeInTheDocument();
+
     // Selection is cleared after a successful upload
     expect(screen.queryByText(/myimage\.tar \(/)).not.toBeInTheDocument();
+  });
+
+  test('renders an Inspect button for every tagged ref', async () => {
+    const user = userEvent.setup();
+    uploadImage.mockResolvedValue({
+      success: true,
+      loadedImages: ['myimage:latest', 'myimage:v2'],
+      loadedImageIds: [],
+    });
+
+    render(<ImageUpload {...mockProps} />);
+
+    await user.upload(screen.getByLabelText('Choose file…'), makeFile());
+    await user.click(screen.getByRole('button', { name: /^upload$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Loaded: myimage:latest, myimage:v2')).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByRole('button', { name: 'Inspect' })).toHaveLength(2);
   });
 
   test('falls back to loadedImageIds when loadedImages is empty', async () => {
@@ -110,6 +133,29 @@ describe('ImageUpload Component', () => {
     await waitFor(() => {
       expect(screen.getByText('Loaded: sha256:abc123')).toBeInTheDocument();
     });
+  });
+
+  test('offers no Inspect button for bare image IDs, shows a retag hint instead', async () => {
+    const user = userEvent.setup();
+    uploadImage.mockResolvedValue({
+      success: true,
+      loadedImages: [],
+      loadedImageIds: ['sha256:abc123'],
+    });
+
+    render(<ImageUpload {...mockProps} />);
+
+    await user.upload(screen.getByLabelText('Choose file…'), makeFile());
+    await user.click(screen.getByRole('button', { name: /^upload$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Loaded: sha256:abc123')).toBeInTheDocument();
+    });
+
+    // A bare ID is rejected by the backend name validator, so never offer Inspect
+    expect(screen.queryByRole('button', { name: 'Inspect' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Untagged image/)).toBeInTheDocument();
+    expect(screen.getByText('docker tag sha256:abc123 myname:tag')).toBeInTheDocument();
   });
 
   test('shows progress percent, then "Loading into Docker…" after 100%', async () => {
@@ -141,6 +187,44 @@ describe('ImageUpload Component', () => {
 
     expect(screen.getByText('Loaded: done:latest')).toBeInTheDocument();
     expect(screen.queryByText('Loading into Docker…')).not.toBeInTheDocument();
+  });
+
+  test('ignores drag-and-drop while an upload is in flight', async () => {
+    const user = userEvent.setup();
+    let finishUpload;
+    uploadImage.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishUpload = resolve;
+        })
+    );
+
+    render(<ImageUpload {...mockProps} />);
+
+    await user.upload(screen.getByLabelText('Choose file…'), makeFile('first.tar', 1024));
+    await user.click(screen.getByRole('button', { name: /^upload$/i }));
+
+    const card = screen.getByTestId('image-upload-card');
+    expect(screen.getByText('first.tar (1 KB)')).toBeInTheDocument();
+
+    // The drop cursor must not suggest the card accepts a file right now
+    fireEvent.dragOver(card);
+    expect(card).not.toHaveClass('drag-active');
+
+    fireEvent.drop(card, {
+      dataTransfer: { files: [makeFile('second.tar', 2048)] },
+    });
+
+    // Selection is untouched, so the resolving upload cannot discard a new file
+    expect(screen.getByText('first.tar (1 KB)')).toBeInTheDocument();
+    expect(screen.queryByText('second.tar (2 KB)')).not.toBeInTheDocument();
+
+    await act(async () => {
+      finishUpload({ success: true, loadedImages: ['first:latest'], loadedImageIds: [] });
+    });
+
+    expect(screen.getByText('Loaded: first:latest')).toBeInTheDocument();
+    expect(uploadImage).toHaveBeenCalledTimes(1);
   });
 
   test('failed upload renders the error and keeps the file selected', async () => {

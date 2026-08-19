@@ -36,14 +36,18 @@ const ustarBuffer = () => {
   return buf;
 };
 
-// Route by argv: docker --version succeeds, docker load returns given stdout
+// Route by argv: docker version succeeds with JSON, docker load returns given stdout
 const mockDockerLoad = (stdout, loadError = null) => {
   childProcess.execFile.mockImplementation((file, args, callback) => {
     if (args[0] === 'load') {
       callback(loadError, loadError ? '' : stdout, '');
       return;
     }
-    callback(null, 'Docker version 29.0.0', '');
+    if (args[0] === 'version') {
+      callback(null, '{"Client":{},"Server":{}}', '');
+      return;
+    }
+    callback(null, '', '');
   });
 };
 
@@ -92,15 +96,19 @@ describe('POST /images/upload', () => {
     expect(res.body.loadedImageIds).toEqual(['sha256:deadbeef']);
   });
 
-  test('rejects a request with no file and spawns nothing', async () => {
+  test('rejects a request with no file and never invokes docker load', async () => {
+    mockDockerLoad('');
+
     await request(app).post('/images/upload').expect(400);
 
-    expect(childProcess.execFile).not.toHaveBeenCalled();
+    expect(loadCalls()).toHaveLength(0);
     expect(childProcess.exec).not.toHaveBeenCalled();
     expect(childProcess.spawn).not.toHaveBeenCalled();
   });
 
-  test('rejects a non-tar file with 400, spawns nothing, and cleans up', async () => {
+  test('rejects a non-tar file with 400, never invokes docker load, and cleans up', async () => {
+    mockDockerLoad('');
+
     await request(app)
       .post('/images/upload')
       .attach('image', Buffer.from('definitely not a tar archive'), 'fake.tar')
@@ -111,19 +119,64 @@ describe('POST /images/upload', () => {
         }
       });
 
-    expect(childProcess.execFile).not.toHaveBeenCalled();
+    expect(loadCalls()).toHaveLength(0);
     expect(await fs.readdir(uploadsDir)).toEqual([]);
   });
 
-  test('returns 503 when docker is unavailable and cleans up', async () => {
+  test('returns 503 before the body is accepted when the docker daemon is unreachable', async () => {
     childProcess.execFile.mockImplementation((file, args, callback) => {
-      callback(new Error('docker: command not found'), '', '');
+      callback(new Error('Cannot connect to the Docker daemon'), '', '');
     });
 
     await request(app)
       .post('/images/upload')
       .attach('image', gzipBuffer(), 'x.tar.gz')
       .expect(503);
+
+    // Daemon-aware check ('docker version' contacts the daemon; '--version' does not)
+    expect(childProcess.execFile).toHaveBeenCalledWith(
+      'docker',
+      ['version', '--format', 'json'],
+      expect.any(Function)
+    );
+    expect(loadCalls()).toHaveLength(0);
+    expect(await fs.readdir(uploadsDir)).toEqual([]);
+  });
+
+  test('reports a storage failure as 500, not a client error', async () => {
+    mockDockerLoad('Loaded image: myapp:1.0\n');
+
+    await fs.chmod(uploadsDir, 0o500);
+    try {
+      const res = await request(app)
+        .post('/images/upload')
+        .attach('image', gzipBuffer(), 'x.tar.gz')
+        .expect(500);
+
+      expect(res.body.error).toBe('Upload failed');
+    } finally {
+      await fs.chmod(uploadsDir, 0o700);
+    }
+
+    expect(loadCalls()).toHaveLength(0);
+  });
+
+  test('reports an unreadable temp file as 500, not a docker load failure', async () => {
+    mockDockerLoad('Loaded image: myapp:1.0\n');
+    const openSpy = jest
+      .spyOn(require('fs').promises, 'open')
+      .mockRejectedValueOnce(new Error('EACCES: permission denied'));
+
+    try {
+      const res = await request(app)
+        .post('/images/upload')
+        .attach('image', gzipBuffer(), 'x.tar.gz')
+        .expect(500);
+
+      expect(res.body.error).toBe('Failed to read uploaded file');
+    } finally {
+      openSpy.mockRestore();
+    }
 
     expect(loadCalls()).toHaveLength(0);
     expect(await fs.readdir(uploadsDir)).toEqual([]);
@@ -155,6 +208,9 @@ describe('POST /images/upload size limit', () => {
     jest.isolateModules(() => {
       process.env.UPLOAD_MAX_BYTES = '1024';
       freshChildProcess = require('child_process');
+      freshChildProcess.execFile.mockImplementation((file, args, callback) => {
+        callback(null, args[0] === 'version' ? '{"Client":{},"Server":{}}' : '', '');
+      });
       const freshRoutes = require('../routes/images');
       smallLimitApp = express();
       smallLimitApp.use(express.json());
@@ -171,7 +227,10 @@ describe('POST /images/upload size limit', () => {
       .attach('image', big, 'big.tar.gz')
       .expect(413);
 
-    expect(freshChildProcess.execFile).not.toHaveBeenCalled();
+    const freshLoadCalls = freshChildProcess.execFile.mock.calls.filter(
+      ([file, args]) => file === 'docker' && args[0] === 'load'
+    );
+    expect(freshLoadCalls).toHaveLength(0);
     expect(await fs.readdir(uploadsDir)).toEqual([]);
   });
 });

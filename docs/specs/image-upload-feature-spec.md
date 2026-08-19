@@ -198,6 +198,32 @@ Note: the existing shared `mockExecSuccess` makes every execFile succeed includi
 - Follow existing code style (CommonJS backend, React function components,
   console logging style, error JSON shapes).
 
+## Amendments after code review (2026-08-19)
+
+A high-effort review confirmed 16 findings; these changed the contract:
+
+1. **Daemon pre-check before the body.** The route now runs
+   `dockerUtils.getDockerVersion()` (`docker version` — daemon-aware, unlike
+   `docker --version`) BEFORE the multer middleware and returns 503 without
+   accepting the upload when the daemon is unreachable.
+2. **Honest error attribution.** Non-`MulterError` failures from the multer
+   callback (ENOSPC, EACCES, ...) → `500 Upload failed`; unreadable temp file
+   during magic-byte validation → `500 Failed to read uploaded file` (previously
+   both masqueraded as client/docker errors).
+3. **nginx scoping.** The widened limits moved to a dedicated
+   `location = /api/images/upload` block (with `proxy_read_timeout 600s` so a
+   slow `docker load` can't 504 while the client still waits, and
+   `client_max_body_size 1100m` headroom so the backend's JSON 413 wins at the
+   boundary); the general `/api/` block is back to its original limits.
+4. **Untagged uploads.** The UI renders Inspect only for real refs; ID-only
+   loads (`sha256:`) get a hint to `docker tag` locally instead of a button
+   that the backend validator would always reject. Drag-and-drop is ignored
+   while an upload is in flight.
+
+Accepted, not fixed: the 1 GiB limit lives independently in frontend constant,
+backend env default, and nginx (no config plumbing — change all three together);
+EOL normalization churn in four files (follow-up: `.gitattributes`).
+
 ## Proof expected
 
 - `cd backend && npx jest` — full backend suite green (87 existing + new).

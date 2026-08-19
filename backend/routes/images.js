@@ -80,7 +80,17 @@ router.get('/local', async (req, res) => {
  * POST /api/images/upload
  * Upload a docker save tarball and load it into the Docker daemon
  */
-router.post('/upload', (req, res) => {
+router.post('/upload', async (req, res) => {
+  // Daemon-aware pre-check before accepting a potentially huge body:
+  // 'docker version' contacts the daemon, unlike 'docker --version'
+  try {
+    await dockerUtils.getDockerVersion();
+  } catch (error) {
+    return res.status(503).json({
+      error: 'Docker is not available or not accessible'
+    });
+  }
+
   uploadMiddleware(req, res, async (multerError) => {
     const tempPath = req.file ? req.file.path : null;
     let status = 200;
@@ -88,14 +98,23 @@ router.post('/upload', (req, res) => {
 
     try {
       if (multerError) {
-        if (multerError.code === 'LIMIT_FILE_SIZE') {
-          status = 413;
-          payload = {
-            error: 'File too large',
-            message: `Uploads are limited to ${UPLOAD_MAX_BYTES} bytes`
-          };
+        if (multerError instanceof multer.MulterError) {
+          if (multerError.code === 'LIMIT_FILE_SIZE') {
+            status = 413;
+            payload = {
+              error: 'File too large',
+              message: `Uploads are limited to ${UPLOAD_MAX_BYTES} bytes`
+            };
+          } else {
+            status = 400;
+            payload = {
+              error: 'Upload failed',
+              message: multerError.message
+            };
+          }
         } else {
-          status = 400;
+          // fs-level failures (ENOSPC, EACCES, ...) are the server's fault
+          status = 500;
           payload = {
             error: 'Upload failed',
             message: multerError.message
@@ -107,27 +126,37 @@ router.post('/upload', (req, res) => {
           error: 'No image file uploaded',
           message: 'Attach a docker save tarball as multipart field "image"'
         };
-      } else if (!(await isTarArchive(tempPath))) {
-        status = 400;
-        payload = {
-          error: 'Invalid file type',
-          message: 'File is not a tar archive or compressed tar archive'
-        };
-      } else if (!(await dockerUtils.isDockerAvailable())) {
-        status = 503;
-        payload = {
-          error: 'Docker is not available or not accessible'
-        };
       } else {
-        console.log(`Loading uploaded image tarball: ${tempPath}`);
-        const result = await dockerUtils.loadImage(tempPath);
-        payload = {
-          success: true,
-          loadedImages: result.loadedImages,
-          loadedImageIds: result.loadedImageIds,
-          output: result.output,
-          uploadedAt: new Date().toISOString()
-        };
+        let tarValid;
+        try {
+          tarValid = await isTarArchive(tempPath);
+        } catch (readError) {
+          status = 500;
+          payload = {
+            error: 'Failed to read uploaded file',
+            message: readError.message
+          };
+        }
+
+        if (payload) {
+          // fall through to cleanup + response
+        } else if (!tarValid) {
+          status = 400;
+          payload = {
+            error: 'Invalid file type',
+            message: 'File is not a tar archive or compressed tar archive'
+          };
+        } else {
+          console.log(`Loading uploaded image tarball: ${tempPath}`);
+          const result = await dockerUtils.loadImage(tempPath);
+          payload = {
+            success: true,
+            loadedImages: result.loadedImages,
+            loadedImageIds: result.loadedImageIds,
+            output: result.output,
+            uploadedAt: new Date().toISOString()
+          };
+        }
       }
     } catch (error) {
       console.error('Upload image error:', error);
