@@ -202,13 +202,16 @@ describe('WebSocket terminal bridge', () => {
     await waitFor(() => serverModule.activePTYs.size === 0);
   });
 
-  test('invalid image is rejected with HTTP 400 before any PTY spawn', async () => {
-    await expect(connect('image=Bad%2FImage%3Alatest')).rejects.toMatchObject({
-      statusCode: 400
-    });
-    expect(pty.spawn).not.toHaveBeenCalled();
-    expect(serverModule.activePTYs.size).toBe(0);
-  });
+  test.each(['Bad/Image:latest', 'alpine;id', 'alpine && id', '$(id)', '`id`', '--help'])(
+    'invalid image %j is rejected with HTTP 400 before any PTY spawn',
+    async (imageName) => {
+      await expect(connect(`image=${encodeURIComponent(imageName)}`)).rejects.toMatchObject({
+        statusCode: 400
+      });
+      expect(pty.spawn).not.toHaveBeenCalled();
+      expect(serverModule.activePTYs.size).toBe(0);
+    }
+  );
 
   test('missing image is rejected with HTTP 400', async () => {
     await expect(connect('cols=80&rows=30')).rejects.toMatchObject({ statusCode: 400 });
@@ -230,6 +233,60 @@ describe('WebSocket terminal bridge', () => {
     const { code } = await closePromise;
     expect(code).toBe(1000);
     expect(serverModule.activePTYs.size).toBe(0);
+  });
+
+  test('unclaimed upgrade paths are destroyed instead of leaking sockets', async () => {
+    const attempt = new WebSocket(`${baseUrl}/not-a-real-ws-path`);
+    const outcome = await new Promise((resolve) => {
+      attempt.on('error', () => resolve('destroyed'));
+      attempt.on('open', () => resolve('open'));
+      setTimeout(() => resolve('hung'), 3000);
+    });
+
+    expect(outcome).toBe('destroyed');
+    expect(pty.spawn).not.toHaveBeenCalled();
+  });
+
+  test('a pty spawn failure closes the socket with 1011 and frees the session slot', async () => {
+    pty.spawn.mockImplementationOnce(() => {
+      throw new Error('spawn dive ENOENT');
+    });
+
+    const first = new WebSocket(`${baseUrl}/ws/terminal?image=alpine%3Alatest`);
+    const { code } = await new Promise((resolve) => {
+      first.on('close', (c, r) => resolve({ code: c, reason: r.toString() }));
+      first.on('error', () => {});
+    });
+    expect(code).toBe(1011);
+    expect(serverModule.activePTYs.size).toBe(0);
+
+    // slot freed: a healthy connection still works
+    const second = await connect('image=alpine%3Alatest');
+    await nextMessage(second); // ready
+    expect(serverModule.activePTYs.size).toBe(1);
+    second.close(1000);
+    await waitFor(() => serverModule.activePTYs.size === 0);
+  });
+
+  test('Buffer PTY output (encoding:null) is passed through without re-encoding', async () => {
+    const ws = await connect('image=alpine%3Alatest');
+    await nextMessage(ws); // ready
+
+    expect(pty.spawn).toHaveBeenCalledWith(
+      'dive',
+      ['alpine:latest'],
+      expect.objectContaining({ encoding: null })
+    );
+
+    const messagePromise = nextMessage(ws);
+    dataCallback(Buffer.from('raw bytes', 'utf8'));
+    const { data, isBinary } = await messagePromise;
+
+    expect(isBinary).toBe(true);
+    expect(data.toString('utf8')).toBe('raw bytes');
+
+    ws.close(1000);
+    await waitFor(() => serverModule.activePTYs.size === 0);
   });
 
   test('client disconnect kills the PTY and untracks it', async () => {

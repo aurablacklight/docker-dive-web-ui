@@ -102,9 +102,9 @@ describe('App Integration Tests', () => {
       expect(screen.getByText(/interactive dive terminal - nginx:latest/i)).toBeInTheDocument();
     });
 
-    // Should have terminal controls
+    // Should have terminal controls (new chrome)
     expect(screen.getByText('Exit')).toBeInTheDocument();
-    expect(screen.getByText('Resize')).toBeInTheDocument();
+    expect(screen.getByText('Copy')).toBeInTheDocument();
 
     // Step 4: Switch back to analysis
     const analysisButton = screen.getByText(/📊 show analysis/i);

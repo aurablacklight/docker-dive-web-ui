@@ -58,9 +58,9 @@ class MockWebSocket {
     if (this.onmessage) this.onmessage({ data });
   }
 
-  simulateClose(code) {
+  simulateClose(code, reason = '') {
     this.readyState = MockWebSocket.CLOSED;
-    if (this.onclose) this.onclose({ code });
+    if (this.onclose) this.onclose({ code, reason });
   }
 }
 MockWebSocket.CONNECTING = 0;
@@ -201,6 +201,109 @@ describe('TerminalView', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  test('server close 1000 without exit (idle timeout) shows exited state with Restart', () => {
+    renderTerminal();
+    const ws = lastSocket();
+
+    act(() => {
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ type: 'ready', cols: 100, rows: 35 }));
+      ws.simulateClose(1000, 'Idle timeout');
+    });
+
+    expect(screen.getAllByText(/exited/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /restart/i })).toBeInTheDocument();
+  });
+
+  test('close 1013 (session cap) becomes an error with the reason shown, without retrying', () => {
+    jest.useFakeTimers();
+    try {
+      renderTerminal();
+      const ws = lastSocket();
+
+      act(() => {
+        ws.simulateOpen();
+        ws.simulateClose(1013, 'Too many terminal sessions');
+      });
+
+      expect(screen.getAllByText(/too many terminal sessions/i).length).toBeGreaterThan(0);
+      act(() => {
+        jest.advanceTimersByTime(20000);
+      });
+      expect(MockWebSocket.instances.length).toBe(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('a bare open does not reset the retry counter — only ready does', () => {
+    jest.useFakeTimers();
+    try {
+      renderTerminal();
+      const first = lastSocket();
+
+      act(() => {
+        first.simulateOpen();
+        first.simulateClose(1006);
+      });
+      expect(screen.getAllByText(/reconnecting \(1\/5\)/i).length).toBeGreaterThan(0);
+
+      act(() => {
+        jest.advanceTimersByTime(1100);
+      });
+      const second = lastSocket();
+      expect(second).not.toBe(first);
+
+      act(() => {
+        second.simulateOpen(); // upgrade completes but no ready (e.g. server closes next)
+        second.simulateClose(1006);
+      });
+      expect(screen.getAllByText(/reconnecting \(2\/5\)/i).length).toBeGreaterThan(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('a stale socket close after an image switch does not reconnect the old image', () => {
+    jest.useFakeTimers();
+    try {
+      const { rerender } = render(<TerminalView image="image-a:1" onExit={jest.fn()} />);
+      const socketA = lastSocket();
+
+      rerender(<TerminalView image="image-b:1" onExit={jest.fn()} />);
+      const socketB = lastSocket();
+      expect(socketB).not.toBe(socketA);
+
+      act(() => {
+        socketA.simulateClose(1006); // late close from the torn-down socket
+        jest.advanceTimersByTime(5000);
+      });
+
+      expect(MockWebSocket.instances.length).toBe(2);
+      expect(lastSocket()).toBe(socketB);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('ready re-syncs the PTY size when the grid changed during the handshake', () => {
+    renderTerminal(); // socket opened with cols=100
+    const ws = lastSocket();
+    mockTerm.cols = 120; // grid changed while CONNECTING
+
+    act(() => {
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ type: 'ready', cols: 100, rows: 35 }));
+    });
+
+    const resizes = ws.sent
+      .filter((s) => typeof s === 'string')
+      .map((s) => JSON.parse(s))
+      .filter((m) => m.type === 'resize');
+    expect(resizes).toContainEqual({ type: 'resize', cols: 120, rows: 35 });
+    mockTerm.cols = 100;
   });
 
   test('Copy uses the clipboard with the current selection', async () => {

@@ -61,8 +61,10 @@ const TerminalView = ({ image, onExit }) => {
     if (cols === last.cols && rows === last.rows) {
       return; // guard: no-op resizes are what caused the old observer loop
     }
-    lastSizeRef.current = { cols, rows };
+    // Record the size only when it is actually delivered — otherwise a refit
+    // during CONNECTING would permanently desync the PTY grid
     if (ws && ws.readyState === WebSocket.OPEN) {
+      lastSizeRef.current = { cols, rows };
       ws.send(JSON.stringify({ type: 'resize', cols, rows }));
     }
   }, []);
@@ -84,9 +86,9 @@ const TerminalView = ({ image, onExit }) => {
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
 
-    ws.onopen = () => {
-      attemptsRef.current = 0;
-    };
+    // Deliberately no attempts reset in onopen: a server that completes the
+    // upgrade and immediately closes (1013 session cap) would otherwise loop
+    // forever. Only 'ready' proves a live PTY.
 
     ws.onmessage = (event) => {
       if (typeof event.data !== 'string') {
@@ -100,19 +102,44 @@ const TerminalView = ({ image, onExit }) => {
         return;
       }
       if (message.type === 'ready') {
+        const wasReconnect = attemptsRef.current > 0;
+        attemptsRef.current = 0;
         setStatus('connected');
         setStatusDetail('');
+        if (wasReconnect) {
+          term.write('\r\n[reconnected — new dive session]\r\n');
+        }
+        // Re-sync the PTY grid if it changed during the handshake
+        if (term.cols !== message.cols || term.rows !== message.rows) {
+          lastSizeRef.current = { cols: term.cols, rows: term.rows };
+          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        }
       } else if (message.type === 'exit') {
         exitedRef.current = true;
         setExitCode(message.code);
         setStatus('exited');
-        setStatusDetail(`dive exited with code ${message.code}`);
+        setStatusDetail('');
         term.write(`\r\n[dive exited with code ${message.code}]\r\n`);
       }
     };
 
     ws.onclose = (event) => {
-      if (userClosedRef.current || exitedRef.current || event.code === 1000) {
+      if (ws !== wsRef.current) {
+        return; // stale socket from a previous image/effect cycle
+      }
+      if (userClosedRef.current || exitedRef.current) {
+        return;
+      }
+      if (event.code === 1000) {
+        // Server-side clean close without an exit message: idle timeout
+        setStatus('exited');
+        setStatusDetail(event.reason || 'session closed by server');
+        return;
+      }
+      if (event.code === 1013 || event.code === 1011 || event.code === 1008) {
+        // Deterministic server rejection — retrying would just hammer it
+        setStatus('error');
+        setStatusDetail(event.reason || 'server rejected the session');
         return;
       }
       const attempt = attemptsRef.current;
@@ -124,12 +151,7 @@ const TerminalView = ({ image, onExit }) => {
       attemptsRef.current = attempt + 1;
       setStatus('reconnecting');
       setStatusDetail(`reconnecting (${attempt + 1}/${MAX_RECONNECT_ATTEMPTS})`);
-      reconnectTimerRef.current = setTimeout(() => {
-        if (termRef.current) {
-          termRef.current.write('\r\n[reconnected — new dive session]\r\n');
-          connect();
-        }
-      }, RECONNECT_DELAYS_MS[attempt]);
+      reconnectTimerRef.current = setTimeout(connect, RECONNECT_DELAYS_MS[attempt]);
     };
   }, [image]);
 
@@ -179,12 +201,17 @@ const TerminalView = ({ image, onExit }) => {
       }
     });
 
-    // Copy-on-select
+    // Copy-on-select, debounced: xterm fires selection events continuously
+    // while the mouse drags; only the settled selection matters
+    let selectionDebounce = null;
     term.onSelectionChange(() => {
-      const selection = term.getSelection();
-      if (selection && navigator.clipboard) {
-        navigator.clipboard.writeText(selection).catch(() => {});
-      }
+      clearTimeout(selectionDebounce);
+      selectionDebounce = setTimeout(() => {
+        const selection = term.getSelection();
+        if (selection && navigator.clipboard) {
+          navigator.clipboard.writeText(selection).catch(() => {});
+        }
+      }, 200);
     });
 
     let resizeDebounce = null;
@@ -208,6 +235,7 @@ const TerminalView = ({ image, onExit }) => {
     return () => {
       userClosedRef.current = true;
       clearTimeout(resizeDebounce);
+      clearTimeout(selectionDebounce);
       clearTimeout(reconnectTimerRef.current);
       observer.disconnect();
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
@@ -339,11 +367,7 @@ const TerminalView = ({ image, onExit }) => {
         <span>{statusLabel}</span>
         {statusDetail && <span> — {statusDetail}</span>}
       </div>
-      <div
-        ref={containerRef}
-        className="terminal-body"
-        onClick={() => termRef.current && termRef.current.focus()}
-      />
+      <div ref={containerRef} className="terminal-body" />
       {showHelp && (
         <div className="terminal-help glass-card">
           <h3>Dive keyboard shortcuts</h3>

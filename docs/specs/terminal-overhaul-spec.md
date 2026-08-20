@@ -206,6 +206,34 @@ failures drop from 4 to 3 — App.test.js 1 + integration 2 remain, untouched).
 - `activePTYs`/`killAllPTYs` shutdown semantics preserved.
 - Follow existing code style; CommonJS backend, function components frontend.
 
+## Amendments after code review (2026-08-20)
+
+A high-effort review confirmed 10 findings; the contract changed as follows:
+
+1. **Upgrade reaping widened.** With `destroyUpgrade: false`, the terminal
+   module is now the reaper for EVERY unclaimed upgrade (anything that is not
+   `/ws/terminal` or `/socket.io/*` is destroyed) — the original "only claim
+   /ws/terminal" wording left non-/ws/ upgrades hanging (fd-leak DoS).
+2. **Spawn hardening.** `pty.spawn` failures close the socket with 1011 and
+   free the session-cap slot; the PTY runs with `encoding: null` (Buffers
+   pass through un-re-encoded) and an env allowlist (PATH/HOME/TERM/LANG/
+   DOCKER_*) — never full `process.env`, which leaked secrets and CI=true
+   (from .env.example) would have forced dive into non-interactive mode.
+3. **Client close-code semantics.** 1000 without a prior exit message (server
+   idle timeout) → exited state with Restart; 1008/1011/1013 → error with the
+   server's reason shown, no retries; the retry counter resets only on
+   `ready` (a bare open no longer resets it — prevents an infinite reconnect
+   storm against a full server); `onclose` ignores sockets that are no longer
+   current (image-switch/StrictMode ghost reconnects); the reconnect banner
+   moved into the `ready` handler; a resize during CONNECTING no longer
+   poisons the grid guard, and `ready` re-syncs the PTY size.
+4. **Terraform deployment path.** `terraform/nginx.conf.tpl` gained a `/ws/`
+   upgrade-proxy location and CSP allowances for Google Fonts (that edge
+   previously made the raw-WS terminal and JetBrains Mono unreachable).
+5. Copy-on-select debounced (200 ms); legacy `.terminal` CSS card rule
+   deleted; dead backend `socket.io-client` devDependency removed; jsdom
+   test env gained inert WebSocket + ResizeObserver defaults.
+
 ## Proof expected
 
 - `cd backend && npm test` — green (99 existing minus 2 replaced socket.io

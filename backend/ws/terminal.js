@@ -23,6 +23,22 @@ const clampDimension = (value, fallback) => {
   return Math.min(MAX_DIM, Math.max(MIN_DIM, parsed));
 };
 
+// Allowlist instead of process.env passthrough: the full env leaks backend
+// secrets into a subprocess spawned for any WebSocket client, and CI=true
+// (set by .env.example for the analyze path) would flip dive into
+// non-interactive mode and kill the TUI outright.
+const PTY_ENV_ALLOWLIST = ['PATH', 'HOME', 'USER', 'LANG', 'LC_ALL', 'TMPDIR', 'DOCKER_HOST', 'DOCKER_CONFIG', 'DOCKER_CERT_PATH', 'DOCKER_TLS_VERIFY'];
+
+const buildPtyEnv = () => {
+  const env = { TERM: 'xterm-256color' };
+  PTY_ENV_ALLOWLIST.forEach((key) => {
+    if (process.env[key] !== undefined) {
+      env[key] = process.env[key];
+    }
+  });
+  return env;
+};
+
 /**
  * Attach the raw-WebSocket dive terminal bridge to an HTTP server.
  * Protocol: binary frames carry PTY bytes both ways; JSON text frames carry
@@ -43,9 +59,10 @@ const attachTerminalServer = (httpServer, { activePTYs }) => {
     }
 
     if (url.pathname !== '/ws/terminal') {
-      // Legacy /ws/* paths have no handler; close them instead of hanging.
-      // Anything else (e.g. /socket.io/) belongs to other upgrade listeners.
-      if (url.pathname.startsWith('/ws/')) {
+      // socket.io owns /socket.io/*; with destroyUpgrade disabled there, WE
+      // are the reaper for every other unclaimed upgrade — leaving them
+      // unanswered would leak one fd per request (DoS)
+      if (!url.pathname.startsWith('/socket.io')) {
         socket.destroy();
       }
       return;
@@ -58,29 +75,43 @@ const attachTerminalServer = (httpServer, { activePTYs }) => {
       return;
     }
 
+    // Parse once at validation time so the spawned image can never drift
+    // from the validated one
+    const session = {
+      image,
+      cols: clampDimension(url.searchParams.get('cols'), 80),
+      rows: clampDimension(url.searchParams.get('rows'), 30)
+    };
+
     wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit('connection', ws, req);
+      wss.emit('connection', ws, req, session);
     });
   });
 
-  wss.on('connection', (ws, req) => {
+  wss.on('connection', (ws, req, session) => {
     if (sessions.size >= MAX_SESSIONS) {
       ws.close(1013, 'Too many terminal sessions');
       return;
     }
     sessions.add(ws);
 
-    const url = new URL(req.url, 'http://localhost');
-    const image = url.searchParams.get('image');
-    const cols = clampDimension(url.searchParams.get('cols'), 80);
-    const rows = clampDimension(url.searchParams.get('rows'), 30);
+    const { image, cols, rows } = session;
 
-    const shell = pty.spawn('dive', [image], {
-      name: 'xterm-256color',
-      cols,
-      rows,
-      env: process.env
-    });
+    let shell;
+    try {
+      shell = pty.spawn('dive', [image], {
+        name: 'xterm-256color',
+        cols,
+        rows,
+        encoding: null,
+        env: buildPtyEnv()
+      });
+    } catch (error) {
+      console.error('Failed to spawn dive PTY:', error.message);
+      sessions.delete(ws);
+      ws.close(1011, 'Failed to start dive');
+      return;
+    }
     activePTYs.add(shell);
 
     let finished = false;
@@ -141,7 +172,8 @@ const attachTerminalServer = (httpServer, { activePTYs }) => {
       if (ws.readyState !== ws.OPEN) {
         return;
       }
-      ws.send(Buffer.from(data, 'utf8'));
+      // encoding:null delivers Buffers straight through with no re-encode
+      ws.send(Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf8'));
 
       // Backpressure: pause the PTY while the socket send buffer is saturated
       if (ws.bufferedAmount > SEND_HIGH_WATER_BYTES && typeof shell.pause === 'function') {
