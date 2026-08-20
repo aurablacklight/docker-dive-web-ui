@@ -8,8 +8,8 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import '@xterm/xterm/css/xterm.css';
 
-const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
 const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
 const encoder = new TextEncoder();
 
 const terminalTheme = {
@@ -19,53 +19,51 @@ const terminalTheme = {
   selectionBackground: 'rgba(88, 166, 255, 0.35)'
 };
 
-const buildSocketUrl = (image, cols, rows) => {
-  const params = `image=${encodeURIComponent(image)}&cols=${cols}&rows=${rows}`;
+const wsBaseUrl = () => {
   if (process.env.NODE_ENV === 'production') {
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${protocol}://${window.location.host}/ws/terminal?${params}`;
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${proto}://${window.location.host}/ws/terminal`;
   }
-  return `ws://localhost:3000/ws/terminal?${params}`;
-};
-
-const STATUS_LABELS = {
-  connecting: 'connecting…',
-  connected: 'connected',
-  reconnecting: 'reconnecting',
-  exited: 'exited',
-  error: 'connection failed'
+  return 'ws://localhost:3000/ws/terminal';
 };
 
 const TerminalView = ({ image, onExit }) => {
-  const containerRef = useRef(null);
   const frameRef = useRef(null);
+  const containerRef = useRef(null);
   const termRef = useRef(null);
   const fitRef = useRef(null);
   const wsRef = useRef(null);
+  const reconnectTimerRef = useRef(null);
   const attemptsRef = useRef(0);
   const userClosedRef = useRef(false);
   const exitedRef = useRef(false);
-  const reconnectTimerRef = useRef(null);
-  const resizeTimerRef = useRef(null);
-  const hasConnectedOnceRef = useRef(false);
+  const lastSizeRef = useRef({ cols: 0, rows: 0 });
 
   const [status, setStatus] = useState('connecting');
-  const [attempt, setAttempt] = useState(0);
+  const [statusDetail, setStatusDetail] = useState('');
+  const [exitCode, setExitCode] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
-  const sendInput = useCallback((text) => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(encoder.encode(text));
-    }
-  }, []);
-
-  const sendResize = useCallback(() => {
-    const ws = wsRef.current;
+  const sendResizeIfChanged = useCallback(() => {
     const term = termRef.current;
-    if (ws && term && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+    const ws = wsRef.current;
+    if (!term || !fitRef.current) {
+      return;
+    }
+    try {
+      fitRef.current.fit();
+    } catch (error) {
+      return;
+    }
+    const { cols, rows } = term;
+    const last = lastSizeRef.current;
+    if (cols === last.cols && rows === last.rows) {
+      return; // guard: no-op resizes are what caused the old observer loop
+    }
+    lastSizeRef.current = { cols, rows };
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'resize', cols, rows }));
     }
   }, []);
 
@@ -75,106 +73,104 @@ const TerminalView = ({ image, onExit }) => {
       return;
     }
 
-    setStatus(attemptsRef.current > 0 ? 'reconnecting' : 'connecting');
-    setAttempt(attemptsRef.current);
+    userClosedRef.current = false;
+    const cols = term.cols || 80;
+    const rows = term.rows || 30;
+    lastSizeRef.current = { cols, rows };
 
-    const ws = new WebSocket(buildSocketUrl(image, term.cols, term.rows));
+    const ws = new WebSocket(
+      `${wsBaseUrl()}?image=${encodeURIComponent(image)}&cols=${cols}&rows=${rows}`
+    );
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
 
-    ws.addEventListener('open', () => {
-      // 'ready' confirms the PTY spawned; keep 'connecting' until then
-    });
+    ws.onopen = () => {
+      attemptsRef.current = 0;
+    };
 
-    ws.addEventListener('message', (event) => {
-      if (typeof event.data === 'string') {
-        let message;
-        try {
-          message = JSON.parse(event.data);
-        } catch (error) {
-          return;
-        }
-        if (message.type === 'ready') {
-          attemptsRef.current = 0;
-          setAttempt(0);
-          setStatus('connected');
-          if (hasConnectedOnceRef.current) {
-            term.write('\r\n[reconnected — new dive session]\r\n');
-          }
-          hasConnectedOnceRef.current = true;
-          term.focus();
-        } else if (message.type === 'exit') {
-          exitedRef.current = true;
-          setStatus('exited');
-          term.write(`\r\n[dive exited with code ${message.code}]\r\n`);
-        }
+    ws.onmessage = (event) => {
+      if (typeof event.data !== 'string') {
+        term.write(new Uint8Array(event.data));
         return;
       }
-      term.write(new Uint8Array(event.data));
-    });
-
-    ws.addEventListener('close', (event) => {
-      if (userClosedRef.current || exitedRef.current) {
+      let message;
+      try {
+        message = JSON.parse(event.data);
+      } catch (error) {
         return;
       }
-      if (event.code === 1000) {
+      if (message.type === 'ready') {
+        setStatus('connected');
+        setStatusDetail('');
+      } else if (message.type === 'exit') {
+        exitedRef.current = true;
+        setExitCode(message.code);
         setStatus('exited');
-        return;
+        setStatusDetail(`dive exited with code ${message.code}`);
+        term.write(`\r\n[dive exited with code ${message.code}]\r\n`);
       }
-      if (attemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-        setStatus('error');
-        return;
-      }
-      const delay = RECONNECT_DELAYS_MS[Math.min(attemptsRef.current, RECONNECT_DELAYS_MS.length - 1)];
-      attemptsRef.current += 1;
-      setAttempt(attemptsRef.current);
-      setStatus('reconnecting');
-      reconnectTimerRef.current = setTimeout(connect, delay);
-    });
+    };
 
-    ws.addEventListener('error', () => {
-      // close fires afterwards and drives the reconnect path
-    });
+    ws.onclose = (event) => {
+      if (userClosedRef.current || exitedRef.current || event.code === 1000) {
+        return;
+      }
+      const attempt = attemptsRef.current;
+      if (attempt >= MAX_RECONNECT_ATTEMPTS) {
+        setStatus('error');
+        setStatusDetail('connection lost — reconnect attempts exhausted');
+        return;
+      }
+      attemptsRef.current = attempt + 1;
+      setStatus('reconnecting');
+      setStatusDetail(`reconnecting (${attempt + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+      reconnectTimerRef.current = setTimeout(() => {
+        if (termRef.current) {
+          termRef.current.write('\r\n[reconnected — new dive session]\r\n');
+          connect();
+        }
+      }, RECONNECT_DELAYS_MS[attempt]);
+    };
   }, [image]);
 
   useEffect(() => {
-    userClosedRef.current = false;
-    exitedRef.current = false;
-    attemptsRef.current = 0;
-    hasConnectedOnceRef.current = false;
-
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 14,
       fontFamily: '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace',
       scrollback: 5000,
-      theme: terminalTheme,
-      allowProposedApi: true
+      theme: terminalTheme
     });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+
     try {
       term.loadAddon(new Unicode11Addon());
       term.unicode.activeVersion = '11';
     } catch (error) {
-      // unicode addon is an enhancement, never a requirement
+      // unicode addon is an enhancement, never a blocker
     }
 
     term.open(containerRef.current);
 
-    // WebGL is a fast path, never a requirement: fall back to the default
-    // renderer on load failure or context loss.
+    // WebGL renderer with graceful fallback: never let it break the terminal
     try {
       const webgl = new WebglAddon();
       webgl.onContextLoss(() => webgl.dispose());
       term.loadAddon(webgl);
     } catch (error) {
-      console.warn('WebGL renderer unavailable, using default renderer');
+      console.warn('WebGL renderer unavailable, using fallback renderer');
     }
 
-    fitAddon.fit();
     termRef.current = term;
     fitRef.current = fitAddon;
+
+    try {
+      fitAddon.fit();
+    } catch (error) {
+      // container not measurable yet; the observer will fit on first layout
+    }
+    term.focus();
 
     term.onData((data) => {
       const ws = wsRef.current;
@@ -183,6 +179,7 @@ const TerminalView = ({ image, onExit }) => {
       }
     });
 
+    // Copy-on-select
     term.onSelectionChange(() => {
       const selection = term.getSelection();
       if (selection && navigator.clipboard) {
@@ -190,64 +187,67 @@ const TerminalView = ({ image, onExit }) => {
       }
     });
 
-    // Debounced ResizeObserver; only report size changes that alter the grid
+    let resizeDebounce = null;
     const observer = new ResizeObserver(() => {
-      clearTimeout(resizeTimerRef.current);
-      resizeTimerRef.current = setTimeout(() => {
-        const currentTerm = termRef.current;
-        const currentFit = fitRef.current;
-        if (!currentTerm || !currentFit) {
-          return;
-        }
-        const before = { cols: currentTerm.cols, rows: currentTerm.rows };
-        try {
-          currentFit.fit();
-        } catch (error) {
-          return;
-        }
-        if (currentTerm.cols !== before.cols || currentTerm.rows !== before.rows) {
-          sendResize();
-        }
-      }, 100);
+      clearTimeout(resizeDebounce);
+      resizeDebounce = setTimeout(sendResizeIfChanged, 100);
     });
     observer.observe(containerRef.current);
 
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+      setTimeout(sendResizeIfChanged, 50);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+    exitedRef.current = false;
+    attemptsRef.current = 0;
+    setStatus('connecting');
     connect();
 
     return () => {
       userClosedRef.current = true;
+      clearTimeout(resizeDebounce);
       clearTimeout(reconnectTimerRef.current);
-      clearTimeout(resizeTimerRef.current);
       observer.disconnect();
-      const ws = wsRef.current;
-      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-        ws.close(1000, 'Client closed');
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
+        wsRef.current.close(1000, 'Component unmounted');
       }
       wsRef.current = null;
-      term.dispose();
+      try {
+        term.dispose();
+      } catch (error) {
+        // already disposed
+      }
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [image, connect, sendResize]);
+  }, [image, connect, sendResizeIfChanged]);
 
-  useEffect(() => {
-    const onFullscreenChange = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement));
-      // refit after the layout settles
-      setTimeout(() => {
-        if (fitRef.current) {
-          try {
-            fitRef.current.fit();
-            sendResize();
-          } catch (error) {
-            // container mid-transition; the ResizeObserver will catch up
-          }
-        }
-      }, 50);
-    };
-    document.addEventListener('fullscreenchange', onFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
-  }, [sendResize]);
+  const sendKey = (key) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(encoder.encode(key));
+    }
+  };
+
+  const handleRestart = () => {
+    clearTimeout(reconnectTimerRef.current);
+    userClosedRef.current = true;
+    if (wsRef.current && wsRef.current.readyState !== WebSocket.CLOSED) {
+      wsRef.current.close(1000, 'Restart');
+    }
+    exitedRef.current = false;
+    attemptsRef.current = 0;
+    setExitCode(null);
+    setStatus('connecting');
+    setStatusDetail('');
+    if (termRef.current) {
+      termRef.current.reset();
+    }
+    connect();
+  };
 
   const handleCopy = () => {
     const term = termRef.current;
@@ -257,6 +257,21 @@ const TerminalView = ({ image, onExit }) => {
     const selection = term.getSelection();
     if (selection) {
       navigator.clipboard.writeText(selection).catch(() => {});
+      return;
+    }
+    // No selection: copy the visible buffer
+    try {
+      const buffer = term.buffer.active;
+      const lines = [];
+      for (let i = 0; i < buffer.length; i += 1) {
+        const line = buffer.getLine(i);
+        if (line) {
+          lines.push(line.translateToString(true));
+        }
+      }
+      navigator.clipboard.writeText(lines.join('\n').trimEnd()).catch(() => {});
+    } catch (error) {
+      // buffer serialization is best-effort
     }
   };
 
@@ -268,37 +283,17 @@ const TerminalView = ({ image, onExit }) => {
     }
   };
 
-  const handleRestart = () => {
-    clearTimeout(reconnectTimerRef.current);
-    const ws = wsRef.current;
-    userClosedRef.current = true;
-    if (ws && ws.readyState !== WebSocket.CLOSED) {
-      ws.close(1000, 'Restart');
-    }
-    userClosedRef.current = false;
-    exitedRef.current = false;
-    attemptsRef.current = 0;
-    connect();
-  };
-
-  const handleExit = () => {
-    sendInput('q');
-  };
-
   const statusLabel =
-    status === 'reconnecting'
-      ? `reconnecting (${attempt}/${MAX_RECONNECT_ATTEMPTS})`
-      : STATUS_LABELS[status];
+    status === 'exited' && exitCode !== null ? `exited (${exitCode})` : status;
 
   return (
     <div
       ref={frameRef}
       className={`terminal-frame ${isFullscreen ? 'fullscreen' : ''}`}
-      data-testid="terminal-frame"
     >
       <div className="terminal-header">
         <div>
-          <span className={`terminal-status-dot status-${status}`} title={statusLabel} />
+          <span className={`terminal-status-dot status-${status}`} aria-hidden="true" />
           <span className="terminal-title">dive — {image}</span>
         </div>
         <div className="terminal-actions">
@@ -313,14 +308,24 @@ const TerminalView = ({ image, onExit }) => {
               Restart
             </button>
           )}
-          <button
-            type="button"
-            className="terminal-action-btn"
-            onClick={handleExit}
-            disabled={status !== 'connected'}
-          >
-            Exit
-          </button>
+          {status === 'exited' ? (
+            <button
+              type="button"
+              className="terminal-action-btn"
+              onClick={() => onExit(exitCode)}
+            >
+              Close
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="terminal-action-btn"
+              onClick={() => sendKey('q')}
+              title="Send dive's quit key"
+            >
+              Exit
+            </button>
+          )}
           <button
             type="button"
             className="terminal-action-btn"
@@ -330,13 +335,28 @@ const TerminalView = ({ image, onExit }) => {
           </button>
         </div>
       </div>
-      <div className="terminal-statusline">{statusLabel}</div>
-      <div ref={containerRef} className="terminal-body" />
+      <div className="terminal-statusline">
+        <span>{statusLabel}</span>
+        {statusDetail && <span> — {statusDetail}</span>}
+      </div>
+      <div
+        ref={containerRef}
+        className="terminal-body"
+        onClick={() => termRef.current && termRef.current.focus()}
+      />
       {showHelp && (
-        <div className="terminal-statusline">
-          Keys: q / Ctrl+C quit · Tab switch panes · ↑/↓ or j/k move · PgUp/PgDn scroll ·
-          Ctrl+F filter files · Space collapse dir · Ctrl+A added · Ctrl+R removed ·
-          Ctrl+M modified · Ctrl+U unmodified · Ctrl+B file attributes · Ctrl+L layer changes
+        <div className="terminal-help glass-card">
+          <h3>Dive keyboard shortcuts</h3>
+          <ul>
+            <li><kbd>Q</kbd> or <kbd>Ctrl+C</kbd> — exit dive</li>
+            <li><kbd>Tab</kbd> — switch between layer and filetree views</li>
+            <li><kbd>↑</kbd>/<kbd>↓</kbd> — move one line</li>
+            <li><kbd>PgUp</kbd>/<kbd>PgDn</kbd> — scroll a page</li>
+            <li><kbd>Ctrl+F</kbd> — filter files, <kbd>Esc</kbd> closes the filter</li>
+            <li><kbd>Space</kbd> — collapse/expand directory, <kbd>Ctrl+Space</kbd> all</li>
+            <li><kbd>Ctrl+A</kbd>/<kbd>Ctrl+R</kbd>/<kbd>Ctrl+M</kbd>/<kbd>Ctrl+U</kbd> — toggle added/removed/modified/unmodified files</li>
+            <li><kbd>Ctrl+B</kbd> — toggle file attributes</li>
+          </ul>
         </div>
       )}
     </div>

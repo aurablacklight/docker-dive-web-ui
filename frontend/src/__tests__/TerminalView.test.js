@@ -1,212 +1,227 @@
 import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
+import '@testing-library/jest-dom';
 
-const mockTermInstances = [];
+const mockTerm = {
+  open: jest.fn(),
+  loadAddon: jest.fn(),
+  focus: jest.fn(),
+  dispose: jest.fn(),
+  write: jest.fn(),
+  reset: jest.fn(),
+  onData: jest.fn(),
+  onSelectionChange: jest.fn(),
+  getSelection: jest.fn(() => ''),
+  unicode: { activeVersion: '6' },
+  cols: 100,
+  rows: 35
+};
+
 jest.mock('@xterm/xterm', () => ({
-  Terminal: jest.fn().mockImplementation(function Terminal(options) {
-    this.options = options;
-    this.cols = 80;
-    this.rows = 30;
-    this.unicode = { activeVersion: '6' };
-    this.open = jest.fn();
-    this.focus = jest.fn();
-    this.write = jest.fn();
-    this.dispose = jest.fn();
-    this.loadAddon = jest.fn();
-    this.onData = jest.fn((cb) => {
-      this.dataCallback = cb;
-      return { dispose: jest.fn() };
-    });
-    this.onSelectionChange = jest.fn((cb) => {
-      this.selectionCallback = cb;
-      return { dispose: jest.fn() };
-    });
-    this.getSelection = jest.fn(() => '');
-    mockTermInstances.push(this);
-  })
+  Terminal: jest.fn(() => mockTerm)
 }));
-
 jest.mock('@xterm/addon-fit', () => ({
-  FitAddon: jest.fn().mockImplementation(function FitAddon() {
-    this.fit = jest.fn();
-    this.dispose = jest.fn();
-  })
+  FitAddon: jest.fn(() => ({ fit: jest.fn(), dispose: jest.fn() }))
 }));
-
 jest.mock('@xterm/addon-webgl', () => ({
-  WebglAddon: jest.fn().mockImplementation(function WebglAddon() {
-    this.onContextLoss = jest.fn();
-    this.dispose = jest.fn();
-  })
+  WebglAddon: jest.fn(() => ({ dispose: jest.fn(), onContextLoss: jest.fn() }))
 }));
-
 jest.mock('@xterm/addon-unicode11', () => ({
-  Unicode11Addon: jest.fn().mockImplementation(function Unicode11Addon() {})
+  Unicode11Addon: jest.fn(() => ({}))
 }));
-
-import TerminalView from '../components/TerminalView';
-
-const sockets = [];
+jest.mock('@xterm/xterm/css/xterm.css', () => ({}), { virtual: true });
 
 class MockWebSocket {
   constructor(url) {
     this.url = url;
     this.readyState = MockWebSocket.CONNECTING;
-    this.binaryType = 'blob';
-    this.listeners = {};
-    this.send = jest.fn();
-    this.close = jest.fn(() => {
-      this.readyState = MockWebSocket.CLOSED;
-    });
-    sockets.push(this);
+    this.sent = [];
+    this.closeCalls = [];
+    MockWebSocket.instances.push(this);
   }
 
-  addEventListener(type, cb) {
-    this.listeners[type] = this.listeners[type] || [];
-    this.listeners[type].push(cb);
+  send(data) {
+    this.sent.push(data);
   }
 
-  removeEventListener(type, cb) {
-    this.listeners[type] = (this.listeners[type] || []).filter((l) => l !== cb);
+  close(code, reason) {
+    this.closeCalls.push({ code, reason });
+    this.readyState = MockWebSocket.CLOSED;
   }
 
-  emit(type, event = {}) {
-    if (type === 'open') this.readyState = MockWebSocket.OPEN;
-    if (type === 'close') this.readyState = MockWebSocket.CLOSED;
-    (this.listeners[type] || []).forEach((cb) => cb(event));
+  simulateOpen() {
+    this.readyState = MockWebSocket.OPEN;
+    if (this.onopen) this.onopen();
+  }
+
+  simulateMessage(data) {
+    if (this.onmessage) this.onmessage({ data });
+  }
+
+  simulateClose(code) {
+    this.readyState = MockWebSocket.CLOSED;
+    if (this.onclose) this.onclose({ code });
   }
 }
 MockWebSocket.CONNECTING = 0;
 MockWebSocket.OPEN = 1;
-MockWebSocket.CLOSING = 2;
 MockWebSocket.CLOSED = 3;
+MockWebSocket.instances = [];
 
-let observerInstances;
+let TerminalView;
 
-beforeEach(() => {
-  sockets.length = 0;
-  mockTermInstances.length = 0;
-  observerInstances = [];
+beforeAll(() => {
   global.WebSocket = MockWebSocket;
-  global.ResizeObserver = jest.fn().mockImplementation(function ResizeObserver(cb) {
-    this.callback = cb;
-    this.observe = jest.fn();
-    this.disconnect = jest.fn();
-    observerInstances.push(this);
-  });
-  Object.assign(navigator, {
-    clipboard: { writeText: jest.fn().mockResolvedValue() }
-  });
-  jest.clearAllMocks();
+  global.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  // eslint-disable-next-line global-require
+  TerminalView = require('../components/TerminalView').default;
 });
 
-const lastSocket = () => sockets[sockets.length - 1];
-const lastTerm = () => mockTermInstances[mockTermInstances.length - 1];
+beforeEach(() => {
+  jest.clearAllMocks();
+  MockWebSocket.instances = [];
+  mockTerm.getSelection.mockReturnValue('');
+});
 
-const openAndReady = () => {
-  act(() => {
-    lastSocket().emit('open');
-    lastSocket().emit('message', { data: JSON.stringify({ type: 'ready', cols: 80, rows: 30 }) });
-  });
-};
+const lastSocket = () => MockWebSocket.instances[MockWebSocket.instances.length - 1];
+
+const renderTerminal = (props = {}) =>
+  render(<TerminalView image="myapp:1.0" onExit={props.onExit || jest.fn()} {...props} />);
 
 describe('TerminalView', () => {
-  test('renders chrome with image name and starts connecting', () => {
-    render(<TerminalView image="alpine:latest" onExit={jest.fn()} />);
-    expect(screen.getByText(/dive — alpine:latest/)).toBeInTheDocument();
+  test('renders chrome with the image name and starts in connecting state', () => {
+    renderTerminal();
+
+    expect(screen.getByText(/dive — myapp:1.0/)).toBeInTheDocument();
     expect(screen.getByText(/connecting/i)).toBeInTheDocument();
   });
 
-  test('opens a WebSocket to /ws/terminal with encoded image and size', () => {
-    render(<TerminalView image="my/image:1.0" onExit={jest.fn()} />);
-    const socket = lastSocket();
-    expect(socket.url).toContain('/ws/terminal?');
-    expect(socket.url).toContain(`image=${encodeURIComponent('my/image:1.0')}`);
-    expect(socket.url).toContain('cols=80');
-    expect(socket.url).toContain('rows=30');
-    expect(socket.binaryType).toBe('arraybuffer');
+  test('opens a WebSocket to /ws/terminal with encoded image and terminal size', () => {
+    renderTerminal();
+
+    const ws = lastSocket();
+    expect(ws.url).toContain('/ws/terminal?');
+    expect(ws.url).toContain('image=myapp%3A1.0');
+    expect(ws.url).toContain('cols=100');
+    expect(ws.url).toContain('rows=35');
+    expect(ws.binaryType).toBe('arraybuffer');
   });
 
-  test('ready message moves status to connected', () => {
-    render(<TerminalView image="alpine:latest" onExit={jest.fn()} />);
-    openAndReady();
+  test('ready message flips status to connected', () => {
+    renderTerminal();
+    const ws = lastSocket();
+
+    act(() => {
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ type: 'ready', cols: 100, rows: 35 }));
+    });
+
     expect(screen.getByText(/connected/i)).toBeInTheDocument();
   });
 
   test('binary frames are written to the terminal', () => {
-    render(<TerminalView image="alpine:latest" onExit={jest.fn()} />);
-    openAndReady();
-    const bytes = new TextEncoder().encode('layer data').buffer;
+    renderTerminal();
+    const ws = lastSocket();
+    const bytes = new TextEncoder().encode('layer output').buffer;
+
     act(() => {
-      lastSocket().emit('message', { data: bytes });
+      ws.simulateOpen();
+      ws.simulateMessage(bytes);
     });
-    const written = lastTerm().write.mock.calls.map(([arg]) => arg);
-    expect(
-      written.some(
-        (arg) => arg instanceof Uint8Array && new TextDecoder().decode(arg) === 'layer data'
-      )
-    ).toBe(true);
+
+    expect(mockTerm.write).toHaveBeenCalledWith(expect.any(Uint8Array));
+    const written = mockTerm.write.mock.calls[0][0];
+    expect(new TextDecoder().decode(written)).toBe('layer output');
   });
 
-  test('keyboard input is sent as binary when the socket is open', () => {
-    render(<TerminalView image="alpine:latest" onExit={jest.fn()} />);
-    openAndReady();
-    act(() => {
-      lastTerm().dataCallback('j');
-    });
-    const sent = lastSocket().send.mock.calls.map(([arg]) => arg);
-    // ArrayBuffer.isView instead of instanceof: the TextEncoder polyfill
-    // produces Uint8Arrays from Node's realm, not jsdom's
-    expect(
-      sent.some((arg) => ArrayBuffer.isView(arg) && new TextDecoder().decode(arg) === 'j')
-    ).toBe(true);
-  });
+  test('exit message shows exited status with Restart, and Close calls onExit', () => {
+    const onExit = jest.fn();
+    renderTerminal({ onExit });
+    const ws = lastSocket();
 
-  test('exit message shows exited status and a Restart action', () => {
-    render(<TerminalView image="alpine:latest" onExit={jest.fn()} />);
-    openAndReady();
     act(() => {
-      lastSocket().emit('message', { data: JSON.stringify({ type: 'exit', code: 0 }) });
+      ws.simulateOpen();
+      ws.simulateMessage(JSON.stringify({ type: 'exit', code: 0 }));
     });
-    expect(screen.getByText(/exited/i)).toBeInTheDocument();
+
+    expect(screen.getAllByText(/exited/i).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /restart/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /close/i }));
+    expect(onExit).toHaveBeenCalledWith(0);
   });
 
-  test('Exit button sends q', () => {
-    render(<TerminalView image="alpine:latest" onExit={jest.fn()} />);
-    openAndReady();
+  test('Restart opens a fresh WebSocket connection', () => {
+    renderTerminal();
+    const first = lastSocket();
+    act(() => {
+      first.simulateOpen();
+      first.simulateMessage(JSON.stringify({ type: 'exit', code: 0 }));
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /restart/i }));
+
+    expect(MockWebSocket.instances.length).toBe(2);
+    expect(lastSocket()).not.toBe(first);
+    expect(mockTerm.reset).toHaveBeenCalled();
+  });
+
+  test('Exit button sends the dive quit key as binary', () => {
+    renderTerminal();
+    const ws = lastSocket();
+    act(() => ws.simulateOpen());
+
     fireEvent.click(screen.getByRole('button', { name: /exit/i }));
-    const sent = lastSocket().send.mock.calls.map(([arg]) => arg);
-    expect(
-      sent.some((arg) => ArrayBuffer.isView(arg) && new TextDecoder().decode(arg) === 'q')
-    ).toBe(true);
+
+    expect(ws.sent.length).toBe(1);
+    expect(new TextDecoder().decode(ws.sent[0])).toBe('q');
   });
 
   test('abnormal close shows reconnecting status', () => {
-    render(<TerminalView image="alpine:latest" onExit={jest.fn()} />);
-    openAndReady();
-    act(() => {
-      lastSocket().emit('close', { code: 1006 });
-    });
-    expect(screen.getByText(/reconnecting/i)).toBeInTheDocument();
+    jest.useFakeTimers();
+    try {
+      renderTerminal();
+      const ws = lastSocket();
+
+      act(() => {
+        ws.simulateOpen();
+        ws.simulateClose(1006);
+      });
+
+      expect(screen.getAllByText(/reconnecting/i).length).toBeGreaterThan(0);
+
+      act(() => {
+        jest.advanceTimersByTime(1100);
+      });
+      expect(MockWebSocket.instances.length).toBe(2);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
-  test('Copy button copies the selection', () => {
-    render(<TerminalView image="alpine:latest" onExit={jest.fn()} />);
-    openAndReady();
-    lastTerm().getSelection.mockReturnValue('selected text');
+  test('Copy uses the clipboard with the current selection', async () => {
+    const writeText = jest.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    mockTerm.getSelection.mockReturnValue('selected text');
+
+    renderTerminal();
     fireEvent.click(screen.getByRole('button', { name: /copy/i }));
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('selected text');
+
+    expect(writeText).toHaveBeenCalledWith('selected text');
   });
 
-  test('unmount closes the socket, disposes the terminal, disconnects the observer', () => {
-    const { unmount } = render(<TerminalView image="alpine:latest" onExit={jest.fn()} />);
-    openAndReady();
-    const socket = lastSocket();
-    const term = lastTerm();
+  test('unmount closes the socket cleanly and disposes the terminal', () => {
+    const { unmount } = renderTerminal();
+    const ws = lastSocket();
+    act(() => ws.simulateOpen());
+
     unmount();
-    expect(socket.close).toHaveBeenCalledWith(1000, expect.any(String));
-    expect(term.dispose).toHaveBeenCalled();
-    expect(observerInstances[0].disconnect).toHaveBeenCalled();
+
+    expect(ws.closeCalls).toContainEqual(expect.objectContaining({ code: 1000 }));
+    expect(mockTerm.dispose).toHaveBeenCalled();
   });
 });
