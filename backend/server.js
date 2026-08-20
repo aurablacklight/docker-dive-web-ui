@@ -9,8 +9,7 @@ const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
-const pty = require('node-pty');
-const { validateImageName } = require('./utils/image-name');
+const { attachTerminalServer } = require('./ws/terminal');
 const dockerUtils = require('./utils/docker');
 require('dotenv').config();
 
@@ -45,7 +44,10 @@ const io = socketIo(server, {
     origin: "*", // YOLO - disable CORS entirely for dev
     methods: ["GET", "POST"],
     credentials: false
-  }
+  },
+  // The raw /ws/terminal WebSocket shares this HTTP server; engine.io must not
+  // destroy upgrade requests it doesn't own
+  destroyUpgrade: false
 });
 
 // Port configuration
@@ -169,47 +171,8 @@ io.on('connection', (socket) => {
   });
 });
 
-// Terminal namespace for interactive dive sessions
-io.of('/ws/terminal').on('connection', (socket) => {
-  const { image } = socket.handshake.query;
-
-  if (!validateImageName(image).valid) {
-    socket.emit('error', 'Invalid image name');
-    return socket.disconnect(true);
-  }
-
-  const shell = pty.spawn('dive', [image], {
-    name: 'xterm-color',
-    cols: 80,
-    rows: 30,
-    env: process.env
-  });
-
-  activePTYs.add(shell);
-
-  const cleanup = () => {
-    if (shell && !shell.killed) {
-      shell.kill();
-    }
-    activePTYs.delete(shell);
-  };
-
-  shell.onData((data) => socket.emit('data', data));
-  shell.onExit(({ exitCode }) => {
-    socket.emit('exit', exitCode);
-    cleanup();
-  });
-
-  socket.on('data', (d) => shell.write(d));
-  socket.on('resize', ({ cols, rows }) => {
-    if (cols && rows) {
-      shell.resize(cols, rows);
-    }
-  });
-
-  socket.on('disconnect', cleanup);
-  socket.on('error', cleanup);
-});
+// Raw WebSocket bridge for interactive dive terminal sessions
+attachTerminalServer(server, { activePTYs });
 
 // Make io available to routes
 app.set('io', io);
@@ -311,7 +274,7 @@ if (process.env.NODE_ENV === 'production') {
         images: '/api/images/local',
         pull: '/api/images/pull',
         upload: '/api/images/upload',
-        websocket: '/ws/inspect'
+        terminal: '/ws/terminal?image=<imageName>'
       }
     });
   });

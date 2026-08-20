@@ -1,320 +1,342 @@
-import React, { useEffect, useRef, useState } from 'react';
+// The production babel config (.babelrc) uses the classic JSX runtime, which
+// requires React in scope; only the test env uses the automatic runtime.
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
-import { Terminal } from 'xterm';
-import { FitAddon } from 'xterm-addon-fit';
-import { io } from 'socket.io-client';
-import 'xterm/css/xterm.css';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { WebglAddon } from '@xterm/addon-webgl';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
+import '@xterm/xterm/css/xterm.css';
+
+const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
+const MAX_RECONNECT_ATTEMPTS = 5;
+const encoder = new TextEncoder();
+
+const terminalTheme = {
+  background: '#0d1117',
+  foreground: '#e6edf3',
+  cursor: '#58a6ff',
+  selectionBackground: 'rgba(88, 166, 255, 0.35)'
+};
+
+const buildSocketUrl = (image, cols, rows) => {
+  const params = `image=${encodeURIComponent(image)}&cols=${cols}&rows=${rows}`;
+  if (process.env.NODE_ENV === 'production') {
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${protocol}://${window.location.host}/ws/terminal?${params}`;
+  }
+  return `ws://localhost:3000/ws/terminal?${params}`;
+};
+
+const STATUS_LABELS = {
+  connecting: 'connecting…',
+  connected: 'connected',
+  reconnecting: 'reconnecting',
+  exited: 'exited',
+  error: 'connection failed'
+};
 
 const TerminalView = ({ image, onExit }) => {
   const containerRef = useRef(null);
+  const frameRef = useRef(null);
   const termRef = useRef(null);
-  const socketRef = useRef(null);
   const fitRef = useRef(null);
-  const mountedRef = useRef(true);
-  const initTimeoutRef = useRef(null);
-  const windowResizeTimeoutRef = useRef(null);
+  const wsRef = useRef(null);
+  const attemptsRef = useRef(0);
+  const userClosedRef = useRef(false);
+  const exitedRef = useRef(false);
+  const reconnectTimerRef = useRef(null);
+  const resizeTimerRef = useRef(null);
+  const hasConnectedOnceRef = useRef(false);
+
+  const [status, setStatus] = useState('connecting');
+  const [attempt, setAttempt] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
-  // Reset mounted flag on mount
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
+  const sendInput = useCallback((text) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(encoder.encode(text));
+    }
   }, []);
 
-  useEffect(() => {
-    // Guard against strict-mode double init
-    if (termRef.current) {
+  const sendResize = useCallback(() => {
+    const ws = wsRef.current;
+    const term = termRef.current;
+    if (ws && term && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+    }
+  }, []);
+
+  const connect = useCallback(() => {
+    const term = termRef.current;
+    if (!term) {
       return;
     }
 
-    const term = new Terminal();
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-    
-    // CHECKLIST: open FIRST, FIT AFTER (rAF is your friend)
-    term.open(containerRef.current);
-    
-    // Wait for DOM and renderer to be ready using requestAnimationFrame
-    const initializeTerminal = () => {
-      // Don't proceed if component unmounted
-      if (!mountedRef.current) return;
-      
-      try {
-        // CHECKLIST: ensure the container is visible (not display:none, not width/height:0)
-        const container = containerRef.current;
-        if (container && 
-            container.offsetWidth > 0 && 
-            container.offsetHeight > 0 && 
-            container.offsetParent !== null) {
-          
-          fitAddon.fit();
-          term.focus();
-          console.log('Terminal initialized and focused');
-          
-          // DISABLE ResizeObserver for now - causing infinite loops
-          // Will rely on window resize events and manual resize only
-          
-          // Additional focus debugging
-          setTimeout(() => {
-            term.focus();
-            console.log('Terminal re-focused after delay');
-          }, 1000);
-        } else {
-          // Retry if container isn't ready, but don't retry indefinitely
-          if (mountedRef.current) {
-            initTimeoutRef.current = requestAnimationFrame(initializeTerminal);
+    setStatus(attemptsRef.current > 0 ? 'reconnecting' : 'connecting');
+    setAttempt(attemptsRef.current);
+
+    const ws = new WebSocket(buildSocketUrl(image, term.cols, term.rows));
+    ws.binaryType = 'arraybuffer';
+    wsRef.current = ws;
+
+    ws.addEventListener('open', () => {
+      // 'ready' confirms the PTY spawned; keep 'connecting' until then
+    });
+
+    ws.addEventListener('message', (event) => {
+      if (typeof event.data === 'string') {
+        let message;
+        try {
+          message = JSON.parse(event.data);
+        } catch (error) {
+          return;
+        }
+        if (message.type === 'ready') {
+          attemptsRef.current = 0;
+          setAttempt(0);
+          setStatus('connected');
+          if (hasConnectedOnceRef.current) {
+            term.write('\r\n[reconnected — new dive session]\r\n');
           }
+          hasConnectedOnceRef.current = true;
+          term.focus();
+        } else if (message.type === 'exit') {
+          exitedRef.current = true;
+          setStatus('exited');
+          term.write(`\r\n[dive exited with code ${message.code}]\r\n`);
         }
-      } catch (error) {
-        console.warn('Initial fit failed:', error);
-        // Fallback retry after longer delay
-        if (mountedRef.current) {
-          initTimeoutRef.current = setTimeout(() => {
-            if (mountedRef.current) {
-              try {
-                fitAddon.fit();
-                term.focus();
-              } catch (retryError) {
-                console.error('Terminal initialization failed:', retryError);
-              }
-            }
-          }, 500);
-        }
-      }
-    };
-    
-    // Use requestAnimationFrame for proper timing
-    initTimeoutRef.current = requestAnimationFrame(initializeTerminal);
-
-    const socket = io(
-      process.env.NODE_ENV === 'production'
-        ? '/ws/terminal'
-        : 'http://localhost:3000/ws/terminal',
-      { query: { image } }
-    );
-
-    socket.on('connect', () => {
-      console.log('Socket connected for terminal');
-    });
-
-    socket.on('disconnect', () => {
-      console.log('Socket disconnected');
-    });
-
-    // CHECKLIST: don't write/fit after unmount
-    term.onData(data => {
-      console.log('Terminal data input:', data);
-      if (mountedRef.current && socket) {
-        socket.emit('data', data);
-      }
-    });
-    
-    console.log('Terminal onData handler set up');
-    
-    socket.on('data', d => {
-      console.log('Socket data received:', d);
-      if (mountedRef.current && termRef.current) {
-        term.write(d);
-      }
-    });
-    
-    socket.on('exit', code => {
-      if (mountedRef.current && termRef.current) {
-        term.write(`\r\nProcess exited with code ${code}\r\n`);
-        if (onExit) onExit(code);
-      }
-    });
-
-    const handleResize = () => {
-      if (!mountedRef.current || !fitRef.current || !termRef.current || !containerRef.current) {
         return;
       }
-      
-      try {
-        // Check if container has valid dimensions and is visible
-        const container = containerRef.current;
-        if (container.offsetWidth > 0 && 
-            container.offsetHeight > 0 && 
-            container.offsetParent !== null) {
-          requestAnimationFrame(() => {
-            if (mountedRef.current && fitRef.current && socketRef.current) {
-              try {
-                fitRef.current.fit();
-                socket.emit('resize', { cols: term.cols, rows: term.rows });
-                console.log('Window resize: terminal fitted');
-              } catch (error) {
-                console.warn('Resize fit failed:', error);
-              }
-            }
-          });
-        }
-      } catch (error) {
-        console.warn('Resize failed:', error);
+      term.write(new Uint8Array(event.data));
+    });
+
+    ws.addEventListener('close', (event) => {
+      if (userClosedRef.current || exitedRef.current) {
+        return;
       }
-    };
+      if (event.code === 1000) {
+        setStatus('exited');
+        return;
+      }
+      if (attemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+        setStatus('error');
+        return;
+      }
+      const delay = RECONNECT_DELAYS_MS[Math.min(attemptsRef.current, RECONNECT_DELAYS_MS.length - 1)];
+      attemptsRef.current += 1;
+      setAttempt(attemptsRef.current);
+      setStatus('reconnecting');
+      reconnectTimerRef.current = setTimeout(connect, delay);
+    });
 
-    // Debounce window resize events
-    const debouncedWindowResize = () => {
-      clearTimeout(windowResizeTimeoutRef.current);
-      windowResizeTimeoutRef.current = setTimeout(handleResize, 150);
-    };
+    ws.addEventListener('error', () => {
+      // close fires afterwards and drives the reconnect path
+    });
+  }, [image]);
 
-    window.addEventListener('resize', debouncedWindowResize);
+  useEffect(() => {
+    userClosedRef.current = false;
+    exitedRef.current = false;
+    attemptsRef.current = 0;
+    hasConnectedOnceRef.current = false;
 
+    const term = new Terminal({
+      cursorBlink: true,
+      fontSize: 14,
+      fontFamily: '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace',
+      scrollback: 5000,
+      theme: terminalTheme,
+      allowProposedApi: true
+    });
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    try {
+      term.loadAddon(new Unicode11Addon());
+      term.unicode.activeVersion = '11';
+    } catch (error) {
+      // unicode addon is an enhancement, never a requirement
+    }
+
+    term.open(containerRef.current);
+
+    // WebGL is a fast path, never a requirement: fall back to the default
+    // renderer on load failure or context loss.
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
+    } catch (error) {
+      console.warn('WebGL renderer unavailable, using default renderer');
+    }
+
+    fitAddon.fit();
     termRef.current = term;
-    socketRef.current = socket;
     fitRef.current = fitAddon;
 
-    // CHECKLIST: cancel timers/subs on cleanup
-    return () => {
-      // Set unmounted flag first to prevent any async operations
-      mountedRef.current = false;
-      
-      // Clear fitRef early to prevent resize operations
-      fitRef.current = null;
-      
-      // Cancel any pending timeouts/animations
-      if (initTimeoutRef.current) {
-        if (typeof initTimeoutRef.current === 'number') {
-          clearTimeout(initTimeoutRef.current);
-        } else {
-          cancelAnimationFrame(initTimeoutRef.current);
-        }
+    term.onData((data) => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(encoder.encode(data));
       }
-      
-      window.removeEventListener('resize', debouncedWindowResize);
-      
-      // Clear window resize timeout
-      if (windowResizeTimeoutRef.current) {
-        clearTimeout(windowResizeTimeoutRef.current);
-      }
-      
-      // No ResizeObserver cleanup needed since we disabled it
-      
-      // Disconnect socket before disposing terminal
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
-      
-      // Dispose terminal last and clear ref
-      if (termRef.current) {
-        try {
-          termRef.current.dispose();
-        } catch (error) {
-          console.warn('Terminal disposal error:', error);
-        }
-        termRef.current = null;
-      }
-    };
-  }, [image, onExit]);
+    });
 
-  const handleTerminalClick = () => {
-    if (termRef.current) {
-      console.log('Terminal clicked, focusing...');
-      termRef.current.focus();
+    term.onSelectionChange(() => {
+      const selection = term.getSelection();
+      if (selection && navigator.clipboard) {
+        navigator.clipboard.writeText(selection).catch(() => {});
+      }
+    });
+
+    // Debounced ResizeObserver; only report size changes that alter the grid
+    const observer = new ResizeObserver(() => {
+      clearTimeout(resizeTimerRef.current);
+      resizeTimerRef.current = setTimeout(() => {
+        const currentTerm = termRef.current;
+        const currentFit = fitRef.current;
+        if (!currentTerm || !currentFit) {
+          return;
+        }
+        const before = { cols: currentTerm.cols, rows: currentTerm.rows };
+        try {
+          currentFit.fit();
+        } catch (error) {
+          return;
+        }
+        if (currentTerm.cols !== before.cols || currentTerm.rows !== before.rows) {
+          sendResize();
+        }
+      }, 100);
+    });
+    observer.observe(containerRef.current);
+
+    connect();
+
+    return () => {
+      userClosedRef.current = true;
+      clearTimeout(reconnectTimerRef.current);
+      clearTimeout(resizeTimerRef.current);
+      observer.disconnect();
+      const ws = wsRef.current;
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        ws.close(1000, 'Client closed');
+      }
+      wsRef.current = null;
+      term.dispose();
+      termRef.current = null;
+      fitRef.current = null;
+    };
+  }, [image, connect, sendResize]);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+      // refit after the layout settles
+      setTimeout(() => {
+        if (fitRef.current) {
+          try {
+            fitRef.current.fit();
+            sendResize();
+          } catch (error) {
+            // container mid-transition; the ResizeObserver will catch up
+          }
+        }
+      }, 50);
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, [sendResize]);
+
+  const handleCopy = () => {
+    const term = termRef.current;
+    if (!term || !navigator.clipboard) {
+      return;
     }
+    const selection = term.getSelection();
+    if (selection) {
+      navigator.clipboard.writeText(selection).catch(() => {});
+    }
+  };
+
+  const handleFullscreen = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else if (frameRef.current && frameRef.current.requestFullscreen) {
+      frameRef.current.requestFullscreen().catch(() => {});
+    }
+  };
+
+  const handleRestart = () => {
+    clearTimeout(reconnectTimerRef.current);
+    const ws = wsRef.current;
+    userClosedRef.current = true;
+    if (ws && ws.readyState !== WebSocket.CLOSED) {
+      ws.close(1000, 'Restart');
+    }
+    userClosedRef.current = false;
+    exitedRef.current = false;
+    attemptsRef.current = 0;
+    connect();
   };
 
   const handleExit = () => {
-    if (socketRef.current && mountedRef.current) {
-      socketRef.current.emit('data', 'q');
-    }
+    sendInput('q');
   };
 
-  const handleManualResize = () => {
-    if (fitRef.current && termRef.current && socketRef.current && mountedRef.current) {
-      try {
-        fitRef.current.fit();
-        socketRef.current.emit('resize', { cols: termRef.current.cols, rows: termRef.current.rows });
-      } catch (error) {
-        console.warn('Manual resize failed:', error);
-      }
-    }
-  };
+  const statusLabel =
+    status === 'reconnecting'
+      ? `reconnecting (${attempt}/${MAX_RECONNECT_ATTEMPTS})`
+      : STATUS_LABELS[status];
 
   return (
-    <div className="space-y-2">
-      <div 
-        ref={containerRef} 
-        className="terminal" 
-        onClick={handleTerminalClick}
-        style={{ minHeight: '400px', minWidth: '600px' }}
-      />
-      <div className="flex justify-between items-center">
-        <div className="flex space-x-2">
-          <button onClick={handleExit} className="glass px-3 py-1">Exit</button>
-          <button onClick={handleManualResize} className="glass px-3 py-1">Resize</button>
+    <div
+      ref={frameRef}
+      className={`terminal-frame ${isFullscreen ? 'fullscreen' : ''}`}
+      data-testid="terminal-frame"
+    >
+      <div className="terminal-header">
+        <div>
+          <span className={`terminal-status-dot status-${status}`} title={statusLabel} />
+          <span className="terminal-title">dive — {image}</span>
         </div>
-        <button 
-          onClick={() => setShowHelp(!showHelp)} 
-          className="glass px-3 py-1 text-white hover:bg-white hover:bg-opacity-10"
-          title="Show keyboard shortcuts"
-        >
-          ❓ Help
-        </button>
-      </div>
-      
-      {showHelp && (
-        <div className="glass-card p-6 text-white bg-black bg-opacity-75 max-w-6xl mx-auto">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-bold text-xl">🚀 Dive Keyboard Shortcuts</h3>
-            <button 
-              onClick={() => setShowHelp(false)} 
-              className="text-white hover:text-gray-300 text-xl"
-            >
-              ✕
+        <div className="terminal-actions">
+          <button type="button" className="terminal-action-btn" onClick={handleCopy}>
+            Copy
+          </button>
+          <button type="button" className="terminal-action-btn" onClick={handleFullscreen}>
+            {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+          </button>
+          {(status === 'exited' || status === 'error') && (
+            <button type="button" className="terminal-action-btn" onClick={handleRestart}>
+              Restart
             </button>
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-4 md:grid-cols-2 gap-6 text-sm">
-            <div className="bg-gradient-to-br from-blue-900 to-blue-800 p-4 rounded-lg border border-blue-600">
-              <h4 className="font-semibold mb-3 text-blue-300 text-base">🔍 Navigation & Views</h4>
-              <div className="space-y-2">
-                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">Ctrl+C</kbd> or <kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">Q</kbd> Exit</div>
-                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">Tab</kbd> Switch layer/filetree views</div>
-                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">↑/K</kbd> Move up one line</div>
-                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">↓/J</kbd> Move down one line</div>
-                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">PageUp/U</kbd> Scroll up a page</div>
-                <div><kbd className="bg-gray-700 px-2 py-1 rounded text-xs font-mono">PageDown/D</kbd> Scroll down a page</div>
-              </div>
-            </div>
-            <div>
-              <h4 className="font-semibold mb-2 text-green-300">� Layer View</h4>
-              <div className="space-y-1">
-                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+A</kbd> Aggregated modifications</div>
-                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+L</kbd> Current layer modifications</div>
-              </div>
-              <h4 className="font-semibold mb-2 mt-3 text-yellow-300">🗂️ Filter & Search</h4>
-              <div className="space-y-1">
-                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+F</kbd> Filter files</div>
-                <div><kbd className="bg-gray-700 px-1 rounded">ESC</kbd> Close filter</div>
-              </div>
-            </div>
-            <div>
-              <h4 className="font-semibold mb-2 text-purple-300">📁 Filetree View</h4>
-              <div className="space-y-1">
-                <div><kbd className="bg-gray-700 px-1 rounded">Space</kbd> Collapse/expand directory</div>
-                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+Space</kbd> Collapse/expand all</div>
-                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+A</kbd> Show/hide added files</div>
-                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+R</kbd> Show/hide removed files</div>
-                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+M</kbd> Show/hide modified files</div>
-                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+U</kbd> Show/hide unmodified files</div>
-                <div><kbd className="bg-gray-700 px-1 rounded">Ctrl+B</kbd> Show/hide file attributes</div>
-              </div>
-            </div>
-            <div>
-              <h4 className="font-semibold mb-2 text-orange-300">💡 Quick Tips</h4>
-              <div className="space-y-1 text-gray-300">
-                <div>• Click terminal first to focus</div>
-                <div>• Use Tab to switch views</div>
-                <div>• Ctrl+C or Q to exit safely</div>
-                <div>• Ctrl+F to search files</div>
-                <div>• Space to collapse directories</div>
-              </div>
-            </div>
-          </div>
+          )}
+          <button
+            type="button"
+            className="terminal-action-btn"
+            onClick={handleExit}
+            disabled={status !== 'connected'}
+          >
+            Exit
+          </button>
+          <button
+            type="button"
+            className="terminal-action-btn"
+            onClick={() => setShowHelp(!showHelp)}
+          >
+            Help
+          </button>
+        </div>
+      </div>
+      <div className="terminal-statusline">{statusLabel}</div>
+      <div ref={containerRef} className="terminal-body" />
+      {showHelp && (
+        <div className="terminal-statusline">
+          Keys: q / Ctrl+C quit · Tab switch panes · ↑/↓ or j/k move · PgUp/PgDn scroll ·
+          Ctrl+F filter files · Space collapse dir · Ctrl+A added · Ctrl+R removed ·
+          Ctrl+M modified · Ctrl+U unmodified · Ctrl+B file attributes · Ctrl+L layer changes
         </div>
       )}
     </div>
